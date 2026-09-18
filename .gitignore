@@ -1,0 +1,16 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 편집기
+.vscode/
+.idea/
+*.swp
+
+# 임시 · 테스트 산출물
+node_modules/
+*.log
+/out.png
+/s-*.png
+/t*.mjs
