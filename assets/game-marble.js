@@ -42,6 +42,7 @@ const HW       = 10;       // 벽 두께(반)
 const GRAV     = 1900;
 const REST     = 0.34;     // 보통 면
 const REST_BMP = 0.98;     // 범퍼 — 탄성만 살림(에너지 추가 없음)
+const KICK     = 470;      // 범퍼가 튕겨내는 최소 속도 (구슬당 쿨다운이 걸려 발산하지 않는다)
 const BOOST    = 960;      // 점프대가 밀어내는 고정 속도(px/s)
                            // 반발계수>1 은 부딪힐 때마다 에너지가 늘어 발산한다.
                            // 대신 '튕긴 뒤 법선 속도를 이 값까지 올려준다'로 처리한다.
@@ -62,24 +63,24 @@ function seg(x1,y1,x2,y2,hw,rest,boost){ return {x1,y1,x2,y2,hw:hw||HW,rest:rest
 function circ(x,y,r,rest,boost){ return {x,y,r,rest:rest||REST,boost:boost||0,flash:0}; }
 
 /* 회전 막대 — 중심 (cx,cy) 둘레를 도는 선분 */
-function rot(cx,cy,len,hw,omega,rest,phase){
-  return {kind:'rot',cx,cy,len,hw:hw||11,omega,rest:rest||REST,ang:phase||0,seg:null};
+function rot(cx,cy,len,hw,omega,rest,phase,boost){
+  return {kind:'rot',cx,cy,len,hw:hw||11,omega,rest:rest||REST,boost:boost||0,ang:phase||0,seg:null};
 }
 /* 왕복 선분 — 기준 위치에서 (ax,ay) 만큼 사인 왕복 */
-function osc(x1,y1,x2,y2,hw,ax,ay,period,phase,rest){
+function osc(x1,y1,x2,y2,hw,ax,ay,period,phase,rest,boost){
   return {kind:'osc',x1,y1,x2,y2,hw:hw||11,ax,ay,w:2*Math.PI/period,ph:phase||0,
-          rest:rest||REST,seg:null,vx:0,vy:0};
+          rest:rest||REST,boost:boost||0,seg:null,vx:0,vy:0};
 }
 function stepDyn(d,t){
   if(d.kind==='rot'){
     d.ang=d.ang0+d.omega*t;
     const c=Math.cos(d.ang), s=Math.sin(d.ang), h=d.len/2;
-    d.seg={x1:d.cx-c*h,y1:d.cy-s*h,x2:d.cx+c*h,y2:d.cy+s*h,hw:d.hw,rest:d.rest};
+    d.seg={x1:d.cx-c*h,y1:d.cy-s*h,x2:d.cx+c*h,y2:d.cy+s*h,hw:d.hw,rest:d.rest,boost:d.boost};
   } else {
     const k=Math.sin(d.w*t+d.ph), dk=Math.cos(d.w*t+d.ph)*d.w;
     const ox=d.ax*k, oy=d.ay*k;
     d.vx=d.ax*dk; d.vy=d.ay*dk;
-    d.seg={x1:d.x1+ox,y1:d.y1+oy,x2:d.x2+ox,y2:d.y2+oy,hw:d.hw,rest:d.rest};
+    d.seg={x1:d.x1+ox,y1:d.y1+oy,x2:d.x2+ox,y2:d.y2+oy,hw:d.hw,rest:d.rest,boost:d.boost};
   }
 }
 
@@ -117,84 +118,89 @@ pinball(o,x0,y0){
   const b=box(x0,y0), R=27;
   const pts=[[.18,.12],[.82,.12],[.35,.50],[.70,.52],[.18,.88],[.82,.88]];
   for(const [fx,fy] of pts)
-    o.circles.push(circ(b.x0+(b.x1-b.x0)*fx, b.y0+(b.y1-b.y0)*fy, R, REST_BMP));
+    o.circles.push(circ(b.x0+(b.x1-b.x0)*fx, b.y0+(b.y1-b.y0)*fy, R, REST_BMP, KICK));
 },
 /* 점프대 — 위로 쏘아올린다. 순위가 가장 크게 뒤집히는 구간 */
 jump(o,x0,y0){
   const b=box(x0,y0), w=b.x1-b.x0, h=b.y1-b.y0, left=H.rnd()<0.5;
-  /* 점프대는 한쪽에만. 양쪽에 두면 구슬이 사이를 오가며 못 빠져나온다.
-     모든 면은 기울여 둔다(수평면 금지). */
-  if(left) o.walls.push(seg(b.x0, b.y0+h*0.94, b.x0+w*0.58, b.y0+h*0.58, 13, 0.45, BOOST));
-  else     o.walls.push(seg(b.x1, b.y0+h*0.94, b.x1-w*0.58, b.y0+h*0.58, 13, 0.45, BOOST));
-  o.walls.push(seg(left?b.x1:b.x0, b.y0+h*0.14, left?b.x0+w*0.34:b.x1-w*0.34, b.y0+h*0.38, 11));
-  o.circles.push(circ(left? b.x1-46 : b.x0+46, b.y0+h*0.66, 26, REST_BMP));
+  /* 점프대는 반드시 '벽 쪽이 높고 안쪽이 낮게' 놓는다.
+     반대로 놓으면 튕겨 올라간 구슬이 비스듬히 벽 모서리로 되돌아와
+     같은 점프대에 다시 떨어지는 고리가 생긴다(실측 구조2 27회).
+     이 방향이면 구슬이 방 한가운데로 쏘아올려져 점프대 밖에 떨어진다. */
+  if(left) o.walls.push(seg(x0+HW,        b.y0+h*0.54, x0+HW+330,        b.y0+h*0.92, 13, 0.45, BOOST));
+  else     o.walls.push(seg(x0+W_ROOM-HW, b.y0+h*0.54, x0+W_ROOM-HW-330, b.y0+h*0.92, 13, 0.45, BOOST));
+  o.walls.push(seg(left?b.x1:b.x0, b.y0+h*0.10, left?b.x1-w*0.34:b.x0+w*0.34, b.y0+h*0.32, 11));
+  /* 이 범퍼에는 킥을 주지 않는다 — 점프대로 다시 차넣게 된다 */
+  o.circles.push(circ(left? b.x1-52 : b.x0+52, b.y0+h*0.60, 26, REST_BMP));
 },
 /* 물레방아 — 날개 네 장이 돌며 구슬을 퍼올려 옮긴다 */
 wheel(o,x0,y0){
   const b=box(x0,y0), cxp=(b.x0+b.x1)/2, cyp=(b.y0+b.y1)/2;
-  const om=(H.rnd()<0.5?-1:1)*(1.3+H.rnd()*0.7), L=248;
-  o.dyn.push(rot(cxp,cyp,L,12,om,REST,0));
-  o.dyn.push(rot(cxp,cyp,L,12,om,REST,Math.PI/2));
-  o.circles.push(circ(b.x0+24,b.y1-24,22,REST_BMP));
-  o.circles.push(circ(b.x1-24,b.y1-24,22,REST_BMP));
+  const om=(H.rnd()<0.5?-1:1)*(1.9+H.rnd()*0.9), L=248;
+  o.dyn.push(rot(cxp,cyp,L,12,om,0.72,0));
+  o.dyn.push(rot(cxp,cyp,L,12,om,0.72,Math.PI/2));
+  o.circles.push(circ(b.x0+24,b.y1-24,22,REST_BMP, KICK));
+  o.circles.push(circ(b.x1-24,b.y1-24,22,REST_BMP, KICK));
 },
 
 /* ── 벽 장치 ────────────────────────────────────────────────────────── */
 /* 톱니 벽 — 스치면 안쪽으로 튕겨 들어온다 */
 saw(o,x0,y0){
-  const b=box(x0,y0), n=5, d=38, span=(b.y1-b.y0)/n;
+  const b=box(x0,y0), n=5, d=54, span=(b.y1-b.y0)/n;
   for(let i=0;i<n;i++){
     const ya=b.y0+span*i, yb=ya+span;
-    o.walls.push(seg(x0+HW, ya, x0+HW+d, (ya+yb)/2, 8));
-    o.walls.push(seg(x0+HW+d,(ya+yb)/2, x0+HW, yb, 8));
-    o.walls.push(seg(x0+W_ROOM-HW, ya, x0+W_ROOM-HW-d, (ya+yb)/2, 8));
-    o.walls.push(seg(x0+W_ROOM-HW-d,(ya+yb)/2, x0+W_ROOM-HW, yb, 8));
+    o.walls.push(seg(x0+HW, ya, x0+HW+d, (ya+yb)/2, 8, 0.5, 430));
+    o.walls.push(seg(x0+HW+d,(ya+yb)/2, x0+HW, yb, 8, 0.5, 430));
+    o.walls.push(seg(x0+W_ROOM-HW, ya, x0+W_ROOM-HW-d, (ya+yb)/2, 8, 0.5, 430));
+    o.walls.push(seg(x0+W_ROOM-HW-d,(ya+yb)/2, x0+W_ROOM-HW, yb, 8, 0.5, 430));
   }
-  o.circles.push(circ((b.x0+b.x1)/2, b.y0+(b.y1-b.y0)*0.32, 30, REST_BMP));
-  o.circles.push(circ((b.x0+b.x1)/2, b.y0+(b.y1-b.y0)*0.74, 30, REST_BMP));
+  /* 가운데를 일직선으로 비워두면 구슬이 톱니에 닿지도 않고 지나간다 */
+  const cx2=(b.x0+b.x1)/2, hh=b.y1-b.y0;
+  o.circles.push(circ(cx2-88, b.y0+hh*0.22, 30, REST_BMP, KICK));
+  o.circles.push(circ(cx2+88, b.y0+hh*0.52, 30, REST_BMP, KICK));
+  o.circles.push(circ(cx2-88, b.y0+hh*0.82, 30, REST_BMP, KICK));
 },
 /* 벽 범퍼 — 벽에 박힌 반구가 튕겨낸다 */
 wallbump(o,x0,y0){
-  const b=box(x0,y0), n=4, span=(b.y1-b.y0)/n, R=30;
-  /* 원의 중심을 벽 안쪽으로 빼서 실제로 부딪히는 면적을 넓힌다.
-     같은 쪽 위아래 간격은 구슬 지름보다 좁게 둬서 그 사이에 낄 수 없게 한다. */
-  for(let i=0;i<n;i++){
-    const y=b.y0+span*(i+0.5);
-    o.circles.push(circ(x0+HW+R*0.8,          y,          R, REST_BMP, 420));
-    o.circles.push(circ(x0+W_ROOM-HW-R*0.8,   y+span*0.5, R, REST_BMP, 420));
-  }
+  const b=box(x0,y0), cxp=(b.x0+b.x1)/2, n=4, span=(b.y1-b.y0)/n, R=38;
+  /* 예전 설계는 범퍼가 벽에만 붙어 있어서, 가운데로 떨어지는 구슬은 아무것도 안 맞고
+     그냥 지나갔다(섞임도 9%). 큰 범퍼를 중심선 너머까지 끌고 와 좌우로 엇갈리게 둔다. */
+  for(let i=0;i<n;i++)
+    o.circles.push(circ((i%2? cxp+72 : cxp-72), b.y0+span*(i+0.5), R, REST_BMP, KICK));
+  for(let i=0;i<3;i++)
+    o.circles.push(circ((i%2? b.x0+30 : b.x1-30), b.y0+span*(i+1), 24, REST_BMP, KICK));
 },
 /* 좁힘 게이트 — 통로가 좁아졌다 넓어진다 */
 narrow(o,x0,y0){
   const b=box(x0,y0), midY=(b.y0+b.y1)/2, half=96;
   const cxp=(b.x0+b.x1)/2;
-  o.walls.push(seg(x0+HW, b.y0, cxp-half, midY, 11));
-  o.walls.push(seg(cxp-half, midY, x0+HW, b.y1, 11));
-  o.walls.push(seg(x0+W_ROOM-HW, b.y0, cxp+half, midY, 11));
-  o.walls.push(seg(cxp+half, midY, x0+W_ROOM-HW, b.y1, 11));
-  o.circles.push(circ(cxp, b.y0+18, 22, REST_BMP));
+  o.walls.push(seg(x0+HW, b.y0, cxp-half, midY, 11, 0.5, 420));
+  o.walls.push(seg(cxp-half, midY, x0+HW, b.y1, 11, 0.5, 420));
+  o.walls.push(seg(x0+W_ROOM-HW, b.y0, cxp+half, midY, 11, 0.5, 420));
+  o.walls.push(seg(cxp+half, midY, x0+W_ROOM-HW, b.y1, 11, 0.5, 420));
+  o.circles.push(circ(cxp, b.y0+18, 22, REST_BMP, KICK));
 },
 
 /* ── 경로 ───────────────────────────────────────────────────────────── */
 /* 갈림길 — 쐐기로 두 갈래, 한쪽엔 못밭. 아래에서 다시 합류 */
 split(o,x0,y0){
-  const b=box(x0,y0), cxp=(b.x0+b.x1)/2, h=b.y1-b.y0;
-  /* 쐐기 꼭짓점이 뾰족하면 구슬이 그 위에 얹혀 균형을 잡는다.
-     꼭짓점 자리에는 둥근 범퍼를 두고, 갈라지는 면은 그 아래에서 시작한다. */
-  o.circles.push(circ(cxp, b.y0+h*0.10, 34, REST_BMP));
-  o.walls.push(seg(cxp-30, b.y0+h*0.20, cxp-132, b.y0+h*0.52, 11));
-  o.walls.push(seg(cxp+30, b.y0+h*0.20, cxp+132, b.y0+h*0.52, 11));
-  o.walls.push(seg(cxp-132, b.y0+h*0.52, cxp-118, b.y0+h*0.80, 11));
-  o.walls.push(seg(cxp+132, b.y0+h*0.52, cxp+118, b.y0+h*0.80, 11));
-  o.circles.push(circ(b.x0+46, b.y0+h*0.58, 22, REST_BMP));
-  o.circles.push(circ(b.x1-46, b.y0+h*0.58, 22, REST_BMP));
+  const b=box(x0,y0), cxp=(b.x0+b.x1)/2, h=b.y1-b.y0, s=H.rnd()<0.5?-1:1;
+  /* 쐐기 꼭짓점이 뾰족하면 구슬이 그 위에 얹혀 균형을 잡는다 → 둥근 범퍼로 */
+  o.circles.push(circ(cxp, b.y0+h*0.08, 34, REST_BMP, KICK));
+  o.walls.push(seg(cxp-28, b.y0+h*0.18, cxp-148, b.y0+h*0.42, 11));
+  o.walls.push(seg(cxp+28, b.y0+h*0.18, cxp+148, b.y0+h*0.42, 11));
+  /* 좌우가 대칭이면 갈라져도 결과가 안 바뀐다(실측 섞임도 9%).
+     한쪽은 그대로 자유낙하, 다른 쪽은 방을 가로지르는 우회 경사면을 더 타야 해서
+     통과 시간이 크게 벌어진다. */
+  o.walls.push(seg(cxp+s*258, b.y0+h*0.56, cxp-s*120, b.y0+h*0.86, 11));
+  o.circles.push(circ(cxp-s*96, b.y0+h*0.34, 26, REST_BMP, KICK));
 },
 /* 낙차 — 아무것도 없는 자유낙하. 속도가 붙어 다음 구간이 격렬해진다 */
 drop(o,x0,y0){
   const b=box(x0,y0), cxp=(b.x0+b.x1)/2, h=b.y1-b.y0;
   o.walls.push(seg(cxp-150, b.y1, cxp+150, b.y1-58, 13, 0.45, BOOST));
-  o.circles.push(circ(b.x0+40, b.y0+h*0.22, 21, REST_BMP));
-  o.circles.push(circ(b.x1-40, b.y0+h*0.22, 21, REST_BMP));
+  o.circles.push(circ(b.x0+40, b.y0+h*0.22, 21, REST_BMP, KICK));
+  o.circles.push(circ(b.x1-40, b.y0+h*0.22, 21, REST_BMP, KICK));
 },
 /* 지그재그 슬로프 — 좌우로 크게 흘려보낸다 */
 zigzag(o,x0,y0){
@@ -220,8 +226,11 @@ bowl(o,x0,y0){
     o.walls.push(seg(px,py,qx,qy,10)); px=qx; py=qy;
   }
   /* 범퍼는 호가 없는 반대쪽에만 — 호 위에 겹치면 그 사이에 틈이 생긴다 */
-  o.circles.push(circ(flip? cxp+142 : cxp-142, b.y0+hh*0.30, 26, REST_BMP));
-  o.circles.push(circ(flip? cxp+96  : cxp-96,  b.y0+hh*0.74, 24, REST_BMP));
+  o.circles.push(circ(flip? cxp+142 : cxp-142, b.y0+hh*0.30, 26, REST_BMP, KICK));
+  /* 미끄럼틀에서 내려온 구슬을 다시 쏘아올린다.
+     낮은 끝은 반드시 b.y1(바닥에서 52px 위)에서 시작 — 바닥 안쪽에서 시작하면
+     기울어진 바닥과의 사이가 좁아져 구슬이 낀다. 호·범퍼와도 겹치지 않는 반대쪽에 둔다. */
+  o.walls.push(seg(flip? b.x1 : b.x0, b.y1, flip? cxp+30 : cxp-30, b.y1-100, 13, 0.45, 820));
 },
 
 /* ── 움직이는 것 ────────────────────────────────────────────────────── */
@@ -241,7 +250,53 @@ shutter(o,x0,y0){
   const b=box(x0,y0), cxp=(b.x0+b.x1)/2, h=b.y1-b.y0, p=3.0+H.rnd()*1.4;
   o.dyn.push(osc(b.x0,    b.y0+h*0.26, cxp-54, b.y0+h*0.40, 12, 0, h*0.20, p, 0));
   o.dyn.push(osc(cxp+54,  b.y0+h*0.72, b.x1,   b.y0+h*0.58, 12, 0, h*0.20, p, Math.PI));
-  o.circles.push(circ(cxp, b.y0+h*0.06, 24, REST_BMP));
+  o.circles.push(circ(cxp, b.y0+h*0.06, 24, REST_BMP, KICK));
+},
+
+/* ── 관문 ───────────────────────────────────────────────────────────── */
+/* 깔때기 + 좌우로 미끄러지는 차단판.
+   앞선 구슬을 붙잡아 두는 동안 뒤가 따라붙는다 — 구슬 수가 적어도 작동하는
+   유일한 장치. 팀이 적으면 서로 부딪힐 일이 없어 다른 방들은 순위를 못 섞는다.
+
+   끼임 방지:
+   · 차단판은 깔때기 목보다 구슬 지름의 2배 아래에 둔다. 판 위에 올라탄 구슬이
+     깔때기 벽 끝에 짓눌리지 않는다.
+   · 판은 수평이 아니라 10도 기울여 둔다. 올라탄 구슬은 낮은 쪽으로 흘러 떨어진다.
+   · 판이 가장 바깥으로 갔을 때도 방 벽과 80px 이상 떨어뜨린다. */
+gate(o,x0,y0){
+  const b=box(x0,y0), cxp=(b.x0+b.x1)/2, h=b.y1-b.y0, TH=50;
+  o.walls.push(seg(x0+HW,        b.y0+h*0.10, cxp-TH, b.y0+h*0.50, 11, 0.5, 380));
+  o.walls.push(seg(x0+W_ROOM-HW, b.y0+h*0.10, cxp+TH, b.y0+h*0.50, 11, 0.5, 380));
+  const flip=H.rnd()<0.5?1:-1;
+  o.dyn.push(osc(cxp-115, b.y0+h*(flip>0?0.70:0.74), cxp+115, b.y0+h*(flip>0?0.74:0.70),
+                 12, 175, 0, 3.2+H.rnd()*0.8, H.rnd()*6.28, 0.5));
+  o.circles.push(circ(cxp, b.y0+h*0.04, 26, REST_BMP, KICK));
+},
+
+/* 대기통 — 주기적으로 바닥이 열리는 통.
+   구슬은 통에 모였다가 바닥판이 옆으로 비켜날 때 한꺼번에 쏟아진다.
+   '먼저 온 구슬도 문이 열릴 때까지 기다린다' → 앞선 차이가 지워진다.
+   구슬끼리 부딪힐 일이 없는 적은 팀 수에서도 순위를 섞는 유일한 방식.
+
+   끼임 방지:
+   · 바닥판은 통 벽보다 넓고, 벽 아래끝과 판 사이를 2px 로 붙여 밑으로 새지 않게 한다.
+   · 판은 수평으로 미끄러지기만 한다 — 위아래로 누르지 않으므로 구슬을 짓누를 수 없다.
+   · 구슬이 벽에 밀려도 판이 그 밑으로 미끄러질 뿐이라 갇히지 않는다. */
+holdgate(o,x0,y0){
+  const b=box(x0,y0), cxp=(b.x0+b.x1)/2, h=b.y1-b.y0, BW=70;
+  /* 깔때기·통 벽에는 튕김을 주지 않는다 — 통 안에서 구슬이 계속 튀면 안 가라앉는다 */
+  o.walls.push(seg(x0+HW,        b.y0-30, cxp-BW, b.y0+h*0.34, 11, 0.16));
+  o.walls.push(seg(x0+W_ROOM-HW, b.y0-30, cxp+BW, b.y0+h*0.34, 11, 0.16));
+  o.walls.push(seg(cxp-BW, b.y0+h*0.34, cxp-BW, b.y0+h*0.70, 10, 0.16));
+  o.walls.push(seg(cxp+BW, b.y0+h*0.34, cxp+BW, b.y0+h*0.70, 10, 0.16));
+  const s=H.rnd()<0.5?1:-1;
+  /* 판은 통보다 딱 조금만 넓고, 이동폭은 '통을 완전히 벗어날 만큼' 크게 잡는다.
+     판이 통보다 훨씬 넓으면 마찰에 끌려다니는 구슬이 늘 판 위에 남아 영영 안 떨어진다
+     (실측: 구슬이 통 안에서 30초 넘게 버팀). 지금은 주기의 약 30% 동안 통 바닥이
+     완전히 사라지므로 안에 있던 구슬이 한꺼번에 쏟아진다. */
+  o.dyn.push(osc(cxp-100, b.y0+h*0.74, cxp+100, b.y0+h*0.755, 11,
+                 s*190, 0, 2.2+H.rnd()*0.5, H.rnd()*6.28, 0.16));
+  /* 판 아래에는 아무것도 두지 않는다 — 범퍼를 두면 쏟아진 구슬을 통으로 되차넣는다 */
 },
 
 /* ── 피날레 ─────────────────────────────────────────────────────────── */
@@ -253,15 +308,23 @@ finale(o,x0,y0){
      대신 '서로 반대로 도는 쌍둥이 날개 + 큰 범퍼'로 짧고 굵게 흔든다.
      두 날개의 회전 반경은 항상 60px 떨어뜨려 그 사이에 구슬이 끼지 않게 한다. */
   const om=(H.rnd()<0.5?-1:1)*(2.4+H.rnd()*0.8);
-  o.dyn.push(rot(cxp-130, b.y0+h*0.42, 200, 13,  om, REST, 0));
-  o.dyn.push(rot(cxp+130, b.y0+h*0.42, 200, 13, -om, REST, Math.PI/2));
-  o.circles.push(circ(cxp,     b.y0+h*0.06, 24, REST_BMP));
-  o.circles.push(circ(b.x0+52, b.y0+h*0.88, 26, REST_BMP));
-  o.circles.push(circ(b.x1-52, b.y0+h*0.88, 26, REST_BMP));
-  o.circles.push(circ(cxp,     b.y0+h*0.92, 28, REST_BMP));
+  o.dyn.push(rot(cxp-130, b.y0+h*0.42, 200, 13,  om, 0.86, 0,         560));
+  o.dyn.push(rot(cxp+130, b.y0+h*0.42, 200, 13, -om, 0.86, Math.PI/2, 560));
+  /* 두 날개 사이 가운데 60px 틈으로 그냥 빠져나가던 걸 위에서 막아 좌우로 흘린다.
+     날개 회전 반경(100)+범퍼(30)+구슬 지름(30) 이상 떨어뜨린다 */
+  o.circles.push(circ(cxp,     b.y0+h*0.10, 30, REST_BMP, KICK));
+  o.circles.push(circ(b.x0+52, b.y0+h*0.88, 26, REST_BMP, KICK));
+  o.circles.push(circ(b.x1-52, b.y0+h*0.88, 26, REST_BMP, KICK));
+  o.circles.push(circ(cxp,     b.y0+h*0.94, 28, REST_BMP, KICK));
+  /* 점프대는 두지 않는다 — 날개 회전 반경 아래에 놓을 자리가 없어
+     경사면과 날개 사이에 구슬이 낀다(실측 구조3 616회). */
 }
 };
-const ROOM_KEYS = Object.keys(ROOMS).filter(k=>k!=='finale');
+/* 실측 섞임도(방을 지나며 뒤바뀐 순위쌍 비율)를 반영한 가중치.
+   잘 섞는 방을 더 자주 뽑는다 — 무의미하게 지나가는 구간을 줄이기 위해. */
+const ROOM_KEYS = ['jump','jump','jump','zigzag','zigzag','zigzag','drop','drop',
+                   'gate','gate','wallbump','wallbump','shuttle','shutter',
+                   'pinball','pinball','split','saw','narrow','bowl','wheel'];
 
 /* ============================================================================
    코스 조립
@@ -301,7 +364,11 @@ function buildCourse(n, roomCount){
     x0=clamp(pick(lo,hi),lo,hi);
     gOut=clamp(pick(x0+EDGE,x0+W_ROOM-EDGE),x0+EDGE,x0+W_ROOM-EDGE);
     let type,guard=0;
-    if(i===roomCount-1){ type='finale'; }   /* 결승선 직전은 항상 피날레 */
+    /* 결승선 직전 두 방은 고정 — 대기통에서 전원을 모았다가 피날레에서 뒤섞는다.
+       앞선 구슬도 문이 열릴 때까지 기다리므로 그때까지 벌어진 차이가 지워지고,
+       바로 다음 피날레에서 순위가 다시 정해진다. */
+    if(i===roomCount-1){ type='finale'; }
+    else if(i===roomCount-2){ type='holdgate'; }
     else{
       do{ type=ROOM_KEYS[H.rndInt(ROOM_KEYS.length)]; }
       while((type===prev||type===prev2)&&++guard<24);
@@ -378,7 +445,7 @@ function hitPoint(m,px,py,rad,rest,svx,svy,obj,boost){
   const e=rest||REST;
   const jn=-(1+e)*vn;
   m.vx+=jn*nx; m.vy+=jn*ny;
-  if(boost && simT-m.boostT>1.2){              // 점프대 — 항상 같은 세기로 밀어낸다
+  if(boost && simT-m.boostT>1.0){              // 점프대 — 항상 같은 세기로 밀어낸다
     /* 쿨다운을 두지 않으면 쏘아올린 구슬이 같은 점프대로 떨어져 무한히 반복된다 */
     const out=(m.vx-svx)*nx+(m.vy-svy)*ny;
     if(out<boost){ const add=boost-out; m.vx+=add*nx; m.vy+=add*ny; m.boostT=simT; if(obj)obj.flash=1; }
@@ -452,15 +519,19 @@ function step(dt){
     m.cool+=dt;
     /* 흔든 뒤에도 타이머는 계속 흐르게 둔다. 0으로 되돌리면 1단계만 무한 반복되고
        2·3단계로 올라가지 못한다. */
-    if(m.stuck>3.0 && m.cool>0.7){
-      const rm=rooms[roomIndex(m.y)];
+    const rmNow=rooms[roomIndex(m.y)];
+    /* 대기통은 '기다리는 것'이 설계다 — 바닥판이 주기적으로 비켜나므로 반드시 빠져나온다.
+       여기서는 안전망 기준을 3배로 늘려, 일부러 세워둔 구슬을 억지로 밀어내지 않게 한다. */
+    const PT = rmNow && rmNow.type==='holdgate' ? 3 : 1;
+    if(m.stuck>3.0*PT && m.cool>0.7*PT){
+      const rm=rmNow;
       m.cool=0;
-      if(m.stuck>10.0){
+      if(m.stuck>10.0*PT){
         m.x=rm.gOut; m.y=rm.y0+rm.h-FLOOR_H-m.r-6;
         m.vx=(H.rnd()-.5)*60; m.vy=320;
         m.stuck=0; m.best=m.y; rescue[2]++;
         rescueAt[rm.type+'#3']=(rescueAt[rm.type+'#3']||0)+1;
-      } else if(m.stuck>6.0){
+      } else if(m.stuck>6.0*PT){
         m.vx += (rm.gOut-m.x)*2.0 + (H.rnd()-.5)*180;
         m.vy += 340; rescue[1]++;
         rescueAt[rm.type+'#2']=(rescueAt[rm.type+'#2']||0)+1;
@@ -691,7 +762,7 @@ function endRace(){
   H.finish(finished.map(m=>m.team));
 }
 function reset(){
-  const rc = H.n<=8 ? 8 : (H.n<=14 ? 9 : 10);
+  const rc = H.n<=8 ? 7 : 8;
   world=buildCourse(H.n, rc);
   world.allCircles=[]; world.rooms.forEach(r=>r.circles.forEach(c=>world.allCircles.push(c)));
   marbles=placeMarbles(H.n);
@@ -714,6 +785,87 @@ async function startRace(){
 
 /* 코스 검증용 — 화면 없이 한 판을 끝까지 돌려 결과를 돌려준다.
    콘솔에서 __marbleStress(20, 200) 처럼 실행하면 끼임 여부를 직접 확인할 수 있다. */
+/* 코스 분석용 — 방 하나하나가 실제로 순위를 섞고 있는지 잰다.
+   · 선두유지율 : 코스 초반(3번째 방)에서 앞서던 구슬이 그대로 1등으로 들어오는 비율
+   · 방별 섞임도 : 그 방을 지나는 동안 바뀐 순위쌍의 비율 (0이면 아무 일도 안 하는 방) */
+/* 방별 체류시간 측정 (개발용) */
+window.__marbleDwell = function(n, runs){
+  n=n||8; runs=runs||40;
+  const sum={}, cnt={};
+  for(let k=0;k<runs;k++){
+    const rc = n<=8?7:8;
+    world=buildCourse(n,rc);
+    world.allCircles=[]; world.rooms.forEach(r=>r.circles.forEach(c=>world.allCircles.push(c)));
+    marbles=placeMarbles(n); finished=[]; simT=0; rescue=[0,0,0];
+    const R=world.rooms;
+    marbles.forEach(m=>{ m._ri=0; m._cr=new Array(R.length).fill(NaN); });
+    let t=0;
+    while(finished.length<n && t<TIMEOUT){
+      step(SUB); t+=SUB;
+      for(const m of marbles) while(m._ri<R.length && m.y>=R[m._ri].y0){ m._cr[m._ri]=t; m._ri++; }
+    }
+    for(let i=1;i<R.length-1;i++){
+      const ty=R[i].type;
+      for(const m of marbles){
+        const d=m._cr[i+1]-m._cr[i];
+        if(isFinite(d)){ sum[ty]=(sum[ty]||0)+d; cnt[ty]=(cnt[ty]||0)+1; }
+      }
+    }
+  }
+  const out={};
+  Object.keys(sum).sort((a,b)=>sum[b]/cnt[b]-sum[a]/cnt[a]).forEach(k=>out[k]=+(sum[k]/cnt[k]).toFixed(2)+'초');
+  if(cv) reset(); else { world=null; marbles=[]; finished=[]; }
+  return out;
+};
+
+window.__marbleAnalyze = function(n, runs, roomCount){
+  n=n||12; runs=runs||60;
+  if(!H){ console.warn('게임을 한 번 연 뒤에 실행하세요'); return; }
+  const mixSum={}, mixCnt={};
+  let keep=0, kcnt=0, sum=0, chSum=0, chCnt=0;
+  const kd=(a,b)=>{ let inv=0; const pos={}; b.forEach((v,i)=>pos[v]=i);
+    for(let i=0;i<a.length;i++) for(let j=i+1;j<a.length;j++)
+      if(pos[a[i]]>pos[a[j]]) inv++;
+    return inv/(a.length*(a.length-1)/2); };
+  for(let k=0;k<runs;k++){
+    const rc = roomCount || (n<=8?7:8);
+    world=buildCourse(n,rc);
+    world.allCircles=[]; world.rooms.forEach(r=>r.circles.forEach(c=>world.allCircles.push(c)));
+    marbles=placeMarbles(n); finished=[]; simT=0; rescue=[0,0,0];
+    const R=world.rooms;
+    marbles.forEach(m=>{ m._ri=0; m._cr=new Array(R.length).fill(1e9); });
+    let t=0;
+    while(finished.length<n && t<TIMEOUT){
+      step(SUB); t+=SUB;
+      for(const m of marbles)
+        while(m._ri<R.length && m.y>=R[m._ri].y0){ m._cr[m._ri]=t; m._ri++; }
+    }
+    sum+=t;
+    const orderAt=i=>[...marbles].sort((a,b)=>a._cr[i]-b._cr[i]).map(m=>m.team);
+    const post=finished.map(m=>m.team);
+    /* 방 i(=R[i])를 지나는 동안의 변화 = 진입 순서 vs 다음 방 진입 순서 */
+    for(let i=1;i<R.length-1;i++){
+      const a=orderAt(i), b=(i+1<R.length)?orderAt(i+1):post;
+      const ty=R[i].type;
+      mixSum[ty]=(mixSum[ty]||0)+kd(a,b); mixCnt[ty]=(mixCnt[ty]||0)+1;
+    }
+    if(R.length>4){ const e=orderAt(3); if(e[0]===post[0]) keep++; kcnt++; }
+    /* 선두가 몇 번 바뀌는가 — 관객이 실제로 체감하는 지표 */
+    let prevLead=null, ch=0;
+    for(let i=1;i<R.length;i++){ const L=orderAt(i)[0]; if(prevLead!==null && L!==prevLead) ch++; prevLead=L; }
+    if(post[0]!==prevLead) ch++;
+    chSum+=ch; chCnt++;
+  }
+  const mix={};
+  Object.keys(mixSum).sort((a,b)=>mixSum[b]/mixCnt[b]-mixSum[a]/mixCnt[a])
+    .forEach(k=>mix[k]=+(mixSum[k]/mixCnt[k]*100).toFixed(1)+'%');
+  const out={n,runs,평균초:+(sum/runs).toFixed(1),
+             선두유지율:+(keep/kcnt*100).toFixed(0)+'%',
+             선두교체:+(chSum/chCnt).toFixed(1)+'회', 방별섞임도:mix};
+  if(cv) reset(); else { world=null; marbles=[]; finished=[]; }
+  return out;
+};
+
 window.__marbleStress = function(n, runs, roomCount){
   n=n||12; runs=runs||100;
   const save={teams:H&&H.teams};
@@ -722,7 +874,7 @@ window.__marbleStress = function(n, runs, roomCount){
   let lead=0, invSum=0, cmp=0;
   rescueAt={};
   for(let k=0;k<runs;k++){
-    const rc = roomCount || (n<=8?8:(n<=14?9:10));
+    const rc = roomCount || (n<=8?7:8);
     world=buildCourse(n,rc);
     world.allCircles=[]; world.rooms.forEach(r=>r.circles.forEach(c=>world.allCircles.push(c)));
     world.types.forEach(t=>types[t]=(types[t]||0)+1);
