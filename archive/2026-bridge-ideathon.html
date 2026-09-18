@@ -1,0 +1,1521 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>발표 순서 추첨 · 発表順抽選</title>
+<!--
+================================================================================
+  발표 순서 추첨 사다리타기 (Presentation Order Draw / 発表順抽選)
+  2026 Korea-Japan Bridge Ideathon
+  한신대학교 × 시모노세키 시립대학교
+  ------------------------------------------------------------------------------
+  v1.0  2026.08.27  단일 HTML / 외부 의존성 없음 / 오프라인 동작
+  ------------------------------------------------------------------------------
+  [정식 웹사이트 이관 메모]
+   - §1 I18N      : ko/ja/en/zh 4개국어 문구가 모두 들어있음. RENDER_LANGS 배열만
+                    바꾸면 병기 → 단일언어 토글로 전환 가능
+   - §3 DRAW      : 추첨 알고리즘. 이 함수만 그대로 옮기면 됨
+   - §5 RENDER    : Canvas 렌더러. 프레임워크 무관
+================================================================================
+-->
+<style>
+/* ============================================================================
+   §0  BASE / TOKENS
+   ========================================================================= */
+:root{
+  --c-purple:#6E63B0;
+  --c-purple-d:#574C96;
+  --c-blue:#5B8FD4;
+  --c-cyan:#4FC3D9;
+  --c-mint:#A8EDF5;
+  --c-navy:#2E4E9E;
+
+  --ink:#fff;
+  --ink-2:rgba(255,255,255,.72);
+  --ink-3:rgba(255,255,255,.45);
+  --glass:rgba(255,255,255,.10);
+  --glass-2:rgba(255,255,255,.16);
+  --line:rgba(255,255,255,.22);
+
+  --font-user:"Pretendard";
+  --font-stack:var(--font-user),Pretendard,-apple-system,"Malgun Gothic",
+               "Yu Gothic","Hiragino Kaku Gothic ProN",Meiryo,
+               "Noto Sans JP","Noto Sans KR","Microsoft YaHei",sans-serif;
+
+  --r:18px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{
+  font-family:var(--font-stack);
+  background:#3d3a6e;
+  color:var(--ink);
+  -webkit-font-smoothing:antialiased;
+  user-select:none;
+  cursor:default;
+}
+button{font-family:inherit;color:inherit;border:none;background:none;cursor:pointer}
+input,select{font-family:inherit}
+.ja{display:block;font-size:.66em;opacity:.62;font-weight:500;letter-spacing:.01em;margin-top:.15em}
+
+/* ============================================================================
+   §0-1  BACKGROUND (low-poly, 현수막 톤)
+   ========================================================================= */
+#bgGrad{
+  position:fixed;inset:0;z-index:0;
+  background:
+    radial-gradient(120% 90% at 78% 12%, rgba(79,195,217,.55) 0%, rgba(79,195,217,0) 55%),
+    radial-gradient(100% 80% at 10% 95%, rgba(110,99,176,.75) 0%, rgba(110,99,176,0) 60%),
+    linear-gradient(118deg,#6E63B0 0%,#6a73bd 26%,#5B8FD4 55%,#4FC3D9 82%,#7fd3e2 100%);
+}
+#bgPoly{position:fixed;inset:0;z-index:1;opacity:.55}
+#vignette{
+  position:fixed;inset:0;z-index:2;pointer-events:none;
+  background:radial-gradient(120% 100% at 50% 45%,rgba(0,0,0,0) 40%,rgba(20,16,48,.42) 100%);
+}
+
+/* ============================================================================
+   §0-2  SCREEN 공통
+   ========================================================================= */
+.screen{
+  position:fixed;inset:0;z-index:5;
+  display:none;flex-direction:column;
+  padding:26px 34px 20px;
+}
+.screen.on{display:flex;animation:scrIn .5s cubic-bezier(.16,1,.3,1)}
+@keyframes scrIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+.brandbar{
+  display:flex;align-items:flex-end;justify-content:space-between;
+  gap:20px;flex:0 0 auto;
+}
+.brand-t{font-size:clamp(15px,1.35vw,23px);font-weight:800;letter-spacing:-.01em;line-height:1.15}
+.brand-s{font-size:clamp(11px,.82vw,14px);color:var(--ink-2);font-weight:600;margin-top:3px;letter-spacing:.02em}
+.brand-r{font-size:clamp(11px,.8vw,14px);color:var(--ink-3);font-weight:600;text-align:right;line-height:1.5}
+
+/* ============================================================================
+   §0-3  BUTTONS
+   ========================================================================= */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:9px;
+  padding:13px 24px;border-radius:14px;
+  background:var(--glass);border:1.5px solid var(--line);
+  font-weight:700;font-size:15px;line-height:1.2;
+  backdrop-filter:blur(10px);
+  transition:transform .18s cubic-bezier(.16,1,.3,1),background .18s,border-color .18s,box-shadow .18s;
+  white-space:nowrap;
+}
+.btn:hover{background:var(--glass-2);border-color:rgba(255,255,255,.42);transform:translateY(-2px)}
+.btn:active{transform:translateY(0) scale(.98)}
+.btn.sm{padding:9px 15px;font-size:13px;border-radius:11px}
+.btn.primary{
+  background:linear-gradient(135deg,#A8EDF5,#4FC3D9 55%,#63b6e8);
+  color:#123047;border-color:rgba(255,255,255,.6);
+  box-shadow:0 10px 30px rgba(79,195,217,.42),0 0 0 0 rgba(168,237,245,.5);
+}
+.btn.primary:hover{box-shadow:0 14px 40px rgba(79,195,217,.6)}
+.btn.ghost{background:transparent}
+.btn[disabled]{opacity:.35;pointer-events:none}
+.btn .kb{font-size:11px;opacity:.55;border:1px solid currentColor;border-radius:5px;padding:1px 5px;font-weight:700}
+
+/* ============================================================================
+   §1  SETUP SCREEN
+   ========================================================================= */
+#setup{overflow-y:auto;padding-bottom:28px}
+#setup::-webkit-scrollbar{width:9px}
+#setup::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:9px}
+
+.setup-hero{text-align:center;margin:22px 0 26px;flex:0 0 auto}
+.setup-hero h1{
+  font-size:clamp(30px,3.5vw,58px);font-weight:900;letter-spacing:-.025em;line-height:1.02;
+  text-shadow:0 6px 30px rgba(20,16,60,.35);
+}
+.setup-hero h1 .ja{font-size:.42em;margin-top:.35em;opacity:.7;letter-spacing:.02em}
+.setup-hero .kicker{
+  display:inline-flex;align-items:center;gap:12px;
+  font-size:clamp(11px,.85vw,14px);font-weight:700;letter-spacing:.22em;
+  color:var(--mint,#A8EDF5);margin-bottom:14px;text-transform:uppercase;
+}
+.setup-hero .kicker::before,.setup-hero .kicker::after{
+  content:"";width:34px;height:1.5px;background:currentColor;opacity:.5
+}
+
+.grid{
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);
+  gap:18px;max-width:1180px;margin:0 auto;width:100%;
+}
+@media (max-width:1000px){.grid{grid-template-columns:1fr}}
+
+.card{
+  background:rgba(255,255,255,.10);
+  border:1.5px solid var(--line);
+  border-radius:var(--r);
+  padding:20px 22px;
+  backdrop-filter:blur(14px);
+  box-shadow:0 18px 50px rgba(23,18,60,.20);
+}
+.card h2{
+  font-size:14px;font-weight:800;letter-spacing:.02em;
+  display:flex;align-items:center;gap:9px;margin-bottom:15px;
+  color:var(--ink);
+}
+.card h2 .ja{display:inline;font-size:.8em;margin:0;opacity:.5;font-weight:600}
+.card h2::before{
+  content:"";width:4px;height:15px;border-radius:2px;
+  background:linear-gradient(180deg,#A8EDF5,#4FC3D9);flex:0 0 auto;
+}
+.field{margin-bottom:14px}
+.field:last-child{margin-bottom:0}
+.field>label{
+  display:block;font-size:12px;font-weight:700;color:var(--ink-2);
+  margin-bottom:7px;letter-spacing:.01em;
+}
+.field>label .ja{display:inline;font-size:.85em;margin:0;opacity:.55}
+
+.inp{
+  width:100%;padding:11px 14px;border-radius:11px;
+  background:rgba(12,10,40,.28);border:1.5px solid var(--line);
+  color:var(--ink);font-size:14px;font-weight:600;outline:none;
+  transition:border-color .16s,background .16s;
+}
+.inp::placeholder{color:rgba(255,255,255,.34);font-weight:500}
+.inp:focus{border-color:#A8EDF5;background:rgba(12,10,40,.42)}
+select.inp{cursor:pointer;appearance:none;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8'><path d='M1 1l5 5 5-5' stroke='white' stroke-width='2' fill='none' opacity='.6' stroke-linecap='round'/></svg>");
+  background-repeat:no-repeat;background-position:right 13px center;padding-right:34px}
+select.inp option{background:#3b3468;color:#fff}
+
+.seg{display:flex;gap:8px;flex-wrap:wrap}
+.seg button{
+  flex:1 1 0;min-width:120px;padding:12px 10px;border-radius:12px;
+  background:rgba(12,10,40,.22);border:1.5px solid var(--line);
+  font-size:13px;font-weight:700;transition:all .18s;text-align:center;line-height:1.25;
+}
+.seg button .ja{font-size:.78em;margin-top:.2em}
+.seg button:hover{background:rgba(12,10,40,.36)}
+.seg button.on{
+  background:linear-gradient(135deg,rgba(168,237,245,.94),rgba(79,195,217,.94));
+  color:#123047;border-color:rgba(255,255,255,.7);
+  box-shadow:0 8px 22px rgba(79,195,217,.35);
+}
+.seg button.on .ja{opacity:.62}
+
+.stepper{display:flex;align-items:center;gap:10px}
+.stepper button{
+  width:40px;height:40px;border-radius:11px;flex:0 0 auto;
+  background:rgba(12,10,40,.28);border:1.5px solid var(--line);
+  font-size:19px;font-weight:800;transition:all .16s;
+}
+.stepper button:hover{background:rgba(12,10,40,.5);border-color:#A8EDF5}
+.stepper .val{
+  font-size:26px;font-weight:900;min-width:56px;text-align:center;
+  font-variant-numeric:tabular-nums;
+}
+.stepper .unit{font-size:12px;color:var(--ink-2);font-weight:700}
+
+/* 팀 입력 리스트 */
+.teamlist{display:flex;flex-direction:column;gap:9px;max-height:320px;overflow-y:auto;padding-right:4px}
+.teamlist::-webkit-scrollbar{width:7px}
+.teamlist::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:7px}
+.trow{display:flex;align-items:center;gap:10px}
+.tdot{
+  width:34px;height:34px;border-radius:10px;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:900;color:#141230;
+}
+.trow .inp{flex:1 1 auto}
+.trow .dest{
+  flex:0 0 auto;width:132px;font-size:12.5px;font-weight:700;color:var(--ink-2);
+  padding:9px 12px;border-radius:10px;background:rgba(12,10,40,.18);
+  border:1.5px dashed rgba(255,255,255,.18);text-align:center;line-height:1.2;
+}
+.trow .dest .ja{font-size:.8em;margin-top:.1em}
+
+.hint{font-size:11.5px;color:var(--ink-3);line-height:1.6;margin-top:9px}
+.setup-actions{
+  display:flex;gap:12px;justify-content:center;align-items:center;
+  margin:26px auto 6px;flex-wrap:wrap;max-width:1180px;
+}
+.setup-actions .btn.primary{padding:17px 46px;font-size:17px;border-radius:16px}
+
+.toggles{display:flex;gap:9px;flex-wrap:wrap}
+.tg{
+  display:flex;align-items:center;gap:9px;padding:10px 14px;border-radius:11px;
+  background:rgba(12,10,40,.22);border:1.5px solid var(--line);
+  font-size:12.5px;font-weight:700;transition:all .16s;
+}
+.tg:hover{background:rgba(12,10,40,.36)}
+.tg .sw{
+  width:34px;height:19px;border-radius:19px;background:rgba(255,255,255,.2);
+  position:relative;transition:background .2s;flex:0 0 auto;
+}
+.tg .sw::after{
+  content:"";position:absolute;top:2.5px;left:2.5px;width:14px;height:14px;
+  border-radius:50%;background:#fff;transition:transform .22s cubic-bezier(.16,1,.3,1);
+}
+.tg.on .sw{background:linear-gradient(135deg,#A8EDF5,#4FC3D9)}
+.tg.on .sw::after{transform:translateX(15px)}
+
+/* ============================================================================
+   §2  LADDER SCREEN
+   ========================================================================= */
+#ladder{padding:22px 30px 16px}
+.lad-head{display:flex;align-items:center;justify-content:space-between;gap:18px;flex:0 0 auto}
+.lad-title{font-size:clamp(17px,1.5vw,26px);font-weight:900;letter-spacing:-.02em;line-height:1.1}
+.lad-title .ja{font-size:.55em;margin-top:.2em}
+.lad-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.counter{
+  display:flex;align-items:baseline;gap:5px;padding:8px 16px;border-radius:12px;
+  background:rgba(12,10,40,.3);border:1.5px solid var(--line);
+  font-variant-numeric:tabular-nums;font-weight:900;
+}
+.counter b{font-size:22px;color:#A8EDF5}
+.counter span{font-size:13px;color:var(--ink-3)}
+
+/* 스테이지 */
+.stage{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;margin-top:12px}
+/* 팀이 많아지면 카드를 자동으로 좁게 */
+.row-cards.d1>*{border-radius:12px}
+.row-cards.d1 .tcard,.row-cards.d1 .dcard{padding:9px 5px}
+.row-cards.d1 .nm{font-size:clamp(12px,1.05vw,19px)}
+.row-cards.d1 .no{font-size:9.5px;letter-spacing:.08em}
+.row-cards.d1 .ord{font-size:clamp(10px,.82vw,14px)}
+.row-cards.d1 .win{font-size:clamp(11px,.95vw,17px)}
+.row-cards.d1 .dcard{min-height:60px}
+.row-cards.d2{gap:6px}
+.row-cards.d2>*{border-radius:10px}
+.row-cards.d2 .tcard,.row-cards.d2 .dcard{padding:7px 3px}
+.row-cards.d2 .nm{font-size:clamp(10px,.72vw,14px);letter-spacing:-.01em}
+.row-cards.d2 .no{font-size:8.5px;letter-spacing:.04em;margin-bottom:1px}
+.row-cards.d2 .ord{font-size:clamp(9px,.6vw,11px)}
+.row-cards.d2 .ord .ja{display:none}
+.row-cards.d2 .win{font-size:clamp(9.5px,.68vw,13px)}
+.row-cards.d2 .q{font-size:13px;letter-spacing:.06em}
+.row-cards.d2 .dcard{min-height:48px}
+.row-cards{display:flex;gap:12px;flex:0 0 auto;padding:0 4px}
+.row-cards>*{flex:1 1 0;min-width:0}
+
+/* 팀 카드 */
+.tcard{
+  position:relative;border-radius:15px;padding:12px 10px 13px;
+  background:rgba(255,255,255,.13);border:2px solid var(--line);
+  backdrop-filter:blur(12px);text-align:center;overflow:hidden;
+  transition:transform .22s cubic-bezier(.16,1,.3,1),box-shadow .22s,opacity .3s,border-color .22s;
+  cursor:default;
+}
+.tcard .no{
+  font-size:10.5px;font-weight:800;letter-spacing:.14em;color:var(--ink-3);
+  text-transform:uppercase;margin-bottom:3px;
+}
+.tcard .nm{
+  font-size:clamp(14px,1.35vw,25px);font-weight:900;letter-spacing:-.02em;
+  line-height:1.14;word-break:keep-all;overflow-wrap:anywhere;
+}
+.tcard .bar{position:absolute;left:0;right:0;top:0;height:4px}
+.tcard.click{cursor:pointer}
+.tcard.click::after{
+  content:"";position:absolute;inset:-2px;border-radius:15px;pointer-events:none;
+  box-shadow:0 0 0 0 rgba(168,237,245,.65);
+  animation:pulse 2.1s ease-out infinite;
+}
+@keyframes pulse{
+  0%{box-shadow:0 0 0 0 rgba(168,237,245,.55)}
+  70%{box-shadow:0 0 0 13px rgba(168,237,245,0)}
+  100%{box-shadow:0 0 0 0 rgba(168,237,245,0)}
+}
+.tcard.click:hover{transform:translateY(-5px) scale(1.03)}
+.tcard.done{opacity:.34;filter:saturate(.35)}
+.tcard.done::after{display:none}
+.tcard.active{transform:translateY(-4px) scale(1.045);border-color:rgba(255,255,255,.85)}
+
+/* 사다리 캔버스 */
+.canvas-wrap{flex:1 1 auto;position:relative;min-height:0;margin:6px 0}
+#lad{position:absolute;inset:0;width:100%;height:100%}
+
+/* 도착 카드 */
+.dcard{
+  position:relative;border-radius:15px;padding:13px 10px;min-height:74px;
+  background:rgba(12,10,40,.34);border:2.5px solid rgba(255,255,255,.32);
+  backdrop-filter:blur(12px);text-align:center;overflow:hidden;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  transition:transform .3s cubic-bezier(.16,1,.3,1),box-shadow .3s,background .3s,border-color .3s;
+}
+.dcard .ord{
+  font-size:clamp(12px,1.1vw,18px);font-weight:900;line-height:1.15;letter-spacing:-.01em;
+  text-shadow:0 2px 8px rgba(8,6,26,.55);
+}
+.dcard .ord .ja{font-size:.72em;margin-top:.1em;opacity:.75}
+.dcard .win{
+  font-size:clamp(13px,1.25vw,22px);font-weight:900;line-height:1.12;
+  word-break:keep-all;overflow-wrap:anywhere;
+  text-shadow:0 0 14px rgba(8,6,26,.7),0 2px 4px rgba(8,6,26,.9);
+}
+.dcard .q{font-size:clamp(16px,1.5vw,26px);font-weight:900;color:rgba(255,255,255,.58);letter-spacing:.16em}
+.dcard.filled{background:rgba(9,7,32,.52)}
+.dcard.pop{animation:dpop .62s cubic-bezier(.16,1,.3,1)}
+@keyframes dpop{
+  0%{transform:scale(1)}
+  28%{transform:scale(1.13) translateY(-6px)}
+  60%{transform:scale(.985)}
+  100%{transform:scale(1)}
+}
+
+.lad-foot{display:flex;gap:9px;justify-content:center;align-items:center;flex:0 0 auto;padding-top:10px;flex-wrap:wrap}
+.tip{font-size:12px;color:var(--ink-3);font-weight:600;margin-right:6px}
+.tip .ja{display:inline;font-size:.9em;opacity:.7;margin:0}
+
+/* ============================================================================
+   §2-1  COUNTDOWN OVERLAY
+   ========================================================================= */
+#cd{
+  position:fixed;inset:0;z-index:40;display:none;
+  align-items:center;justify-content:center;
+  background:rgba(14,11,44,.5);backdrop-filter:blur(9px);
+}
+#cd.on{display:flex}
+#cd .num{
+  font-size:min(30vw,320px);font-weight:900;line-height:1;
+  color:#fff;text-shadow:0 0 70px rgba(168,237,245,.85),0 0 150px rgba(79,195,217,.55);
+  font-variant-numeric:tabular-nums;
+}
+#cd .ring{
+  position:absolute;width:min(34vw,360px);height:min(34vw,360px);
+  border-radius:50%;border:3px solid rgba(168,237,245,.28);
+}
+#cd .ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+#cd .ring circle{fill:none;stroke:#A8EDF5;stroke-width:3;stroke-linecap:round;
+  filter:drop-shadow(0 0 12px rgba(168,237,245,.9))}
+.cd-tick{animation:cdTick .92s cubic-bezier(.16,1,.3,1)}
+@keyframes cdTick{
+  0%{opacity:0;transform:scale(2.1);filter:blur(16px)}
+  16%{opacity:1;transform:scale(1);filter:blur(0)}
+  88%{opacity:1;transform:scale(1);filter:blur(0)}
+  100%{opacity:0;transform:scale(.9);filter:blur(4px)}
+}
+.shock{
+  position:fixed;left:50%;top:50%;z-index:41;pointer-events:none;
+  width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;
+  border:3px solid rgba(168,237,245,.9);
+}
+.shock.go{animation:shock .85s cubic-bezier(.16,1,.3,1) forwards}
+@keyframes shock{
+  0%{transform:scale(1);opacity:.95;border-width:5px}
+  100%{transform:scale(95);opacity:0;border-width:1px}
+}
+
+/* ============================================================================
+   §3  RESULT SCREEN
+   ========================================================================= */
+#result{padding:28px 40px 20px;align-items:center}
+.res-head{text-align:center;flex:0 0 auto;margin-bottom:16px}
+.res-head h1{font-size:clamp(26px,3vw,50px);font-weight:900;letter-spacing:-.025em;line-height:1.05}
+.res-head h1 .ja{font-size:.42em;margin-top:.3em}
+.res-list{
+  flex:1 1 auto;width:100%;max-width:1000px;min-height:0;
+  display:flex;flex-direction:column;gap:10px;padding:4px 6px;
+  justify-content:center;            /* 행이 최대 높이에 닿으면 남은 공간을 위아래로 균등 분배 */
+}
+.res-list .rrow{flex:1 1 0;max-height:168px}
+.res-list::-webkit-scrollbar{width:8px}
+.res-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:8px}
+.rrow{
+  display:flex;align-items:center;gap:18px;padding:12px 22px;min-height:66px;
+  border-radius:16px;background:rgba(255,255,255,.13);
+  border:2px solid var(--line);backdrop-filter:blur(12px);
+  opacity:0;transform:translateY(22px);
+}
+.rrow.in{animation:rIn .62s cubic-bezier(.16,1,.3,1) forwards}
+@keyframes rIn{to{opacity:1;transform:none}}
+.rrow .rank{
+  width:52px;height:52px;border-radius:14px;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;
+  font-size:24px;font-weight:900;color:#141230;
+}
+.rrow .rinfo{flex:1 1 auto;min-width:0}
+.rrow .rord{font-size:12.5px;font-weight:800;color:rgba(255,255,255,.86);letter-spacing:.02em}
+.rrow .rord .ja{display:inline;font-size:.86em;opacity:.6;margin:0}
+.rrow .rord .ja::before{content:" / "}
+.rrow .rname{font-size:clamp(19px,1.8vw,30px);font-weight:900;letter-spacing:-.02em;line-height:1.15;margin-top:1px;
+  text-shadow:0 2px 10px rgba(8,6,26,.45)}
+.rrow .rno{font-size:11px;font-weight:800;letter-spacing:.14em;color:var(--ink-3);text-transform:uppercase}
+/* 팀이 많을 때: 스크롤 없이 한 화면에 다 보이도록 밀도 조절 */
+.res-list.dense{gap:7px}
+.res-list.dense .rrow{padding:9px 18px;gap:14px;border-radius:13px}
+.res-list.dense .rank{width:42px;height:42px;border-radius:11px;font-size:19px}
+.res-list.dense .rname{font-size:clamp(16px,1.35vw,24px)}
+.res-list.dense .rord{font-size:11px}
+.res-list.dense .rno{font-size:10px}
+.res-list.cols2{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;
+  grid-auto-flow:column;align-content:stretch;max-width:1560px}
+.res-list.cols2 .rrow{max-height:none;min-height:56px}
+.res-list.cols2 .rrow{padding:8px 14px;gap:11px;border-radius:12px}
+.res-list.cols2 .rank{width:38px;height:38px;border-radius:10px;font-size:17px}
+.res-list.cols2 .rname{font-size:clamp(15px,1.1vw,21px)}
+.res-list.cols2 .rord{font-size:10.5px}
+.res-list.cols2 .rord .ja{display:none}
+.res-foot{display:flex;gap:11px;justify-content:center;flex:0 0 auto;padding-top:14px;flex-wrap:wrap}
+
+/* 결과 PNG 캡처용 */
+#shot{position:fixed;left:-99999px;top:0}
+
+/* ============================================================================
+   §4  TOAST
+   ========================================================================= */
+#toast{
+  position:fixed;left:50%;bottom:34px;transform:translateX(-50%) translateY(20px);
+  z-index:60;padding:12px 22px;border-radius:13px;
+  background:rgba(14,11,44,.88);border:1.5px solid var(--line);
+  font-size:13.5px;font-weight:700;backdrop-filter:blur(10px);
+  opacity:0;pointer-events:none;transition:opacity .28s,transform .28s;
+  box-shadow:0 14px 40px rgba(10,8,34,.45);
+}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+
+body.noeffect .tcard.click::after{animation:none}
+</style>
+</head>
+<body>
+
+<div id="bgGrad"></div>
+<canvas id="bgPoly"></canvas>
+<div id="vignette"></div>
+
+<!-- =========================================================================
+     SCREEN 1 : SETUP
+     ====================================================================== -->
+<section id="setup" class="screen on">
+  <div class="brandbar">
+    <div>
+      <div class="brand-t" id="bT1">2026 Korea-Japan Bridge Ideathon</div>
+      <div class="brand-s" id="bS1">한신대학교 × 시모노세키 시립대학교</div>
+    </div>
+    <div class="brand-r">Bridge ideas, Build the future!</div>
+  </div>
+
+  <div class="setup-hero">
+    <div class="kicker">SETUP · 設定</div>
+    <h1>발표 순서 추첨<span class="ja">発表順抽選</span></h1>
+  </div>
+
+  <div class="grid">
+    <!-- 좌측: 행사/표시 설정 -->
+    <div style="display:flex;flex-direction:column;gap:18px">
+      <div class="card">
+        <h2>행사 정보 <span class="ja">/ 行事情報</span></h2>
+        <div class="field">
+          <label>제목 <span class="ja">/ タイトル</span></label>
+          <input class="inp" id="fTitle" placeholder="2026 Korea-Japan Bridge Ideathon">
+        </div>
+        <div class="field">
+          <label>부제 <span class="ja">/ サブタイトル</span></label>
+          <input class="inp" id="fSub" placeholder="한신대학교 × 시모노세키 시립대학교">
+        </div>
+        <div class="field">
+          <label>글꼴 <span class="ja">/ フォント</span></label>
+          <select class="inp" id="fFontSel"></select>
+        </div>
+        <div class="field" id="fFontCustomWrap" style="display:none">
+          <label>글꼴 이름 직접 입력 <span class="ja">/ フォント名を直接入力</span></label>
+          <input class="inp" id="fFontCustom" placeholder="예: GmarketSansMedium">
+        </div>
+        <div class="hint">PC에 설치된 글꼴 이름을 그대로 적으면 적용됩니다. 없는 글꼴이면 기본 글꼴로 표시됩니다.<br>
+          <span style="opacity:.75">パソコンにインストールされたフォント名を入力してください。</span></div>
+      </div>
+
+      <div class="card">
+        <h2>진행 방식 <span class="ja">/ 進行方式</span></h2>
+        <div class="field">
+          <div class="seg" id="fMode">
+            <button data-v="one" class="on">팀별 개별 추첨<span class="ja">チーム別 個別抽選</span></button>
+            <button data-v="all">전체 동시 추첨<span class="ja">全体 同時抽選</span></button>
+          </div>
+        </div>
+        <div class="field">
+          <label>연출 <span class="ja">/ 演出</span></label>
+          <div class="toggles">
+            <button class="tg on" id="tgCount"><span class="sw"></span>드럼롤 카운트다운</button>
+            <button class="tg on" id="tgFx"><span class="sw"></span>네온 트레일 · 파티클</button>
+            <button class="tg" id="tgNo"><span class="sw"></span>팀 번호 표시</button>
+          </div>
+          <div class="hint">노트북 사양이 낮아 끊기면 파티클을 꺼주세요. <span style="opacity:.75">/ 動作が重い場合はオフに。</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 우측: 팀 설정 -->
+    <div class="card">
+      <h2>팀 설정 <span class="ja">/ チーム設定</span></h2>
+      <div class="field">
+        <label>팀 수 <span class="ja">/ チーム数</span></label>
+        <div class="stepper">
+          <button id="cMinus">−</button>
+          <div class="val" id="cVal">5</div>
+          <button id="cPlus">＋</button>
+          <div class="unit">팀 <span style="opacity:.6">/ チーム</span> <span style="opacity:.5">(2–20)</span></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>팀 이름 · 도착점 <span class="ja">/ チーム名・到着点</span></label>
+        <div class="teamlist" id="teamList"></div>
+        <div class="hint">도착점은 발표 순서대로 고정되며, 어느 팀이 어디로 갈지는 사다리가 정합니다.<br>
+          <span style="opacity:.75">到着点は発表順で固定。どのチームがどこに行くかははしごが決めます。</span></div>
+      </div>
+      <div class="field">
+        <button class="btn sm ghost" id="bPreset">이번 행사 기본값 불러오기 <span class="ja" style="display:inline;font-size:.85em;opacity:.6">/ 既定値</span></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="setup-actions">
+    <button class="btn ghost" id="bReset">초기화 / リセット</button>
+    <button class="btn primary" id="bStart">사다리 만들기 · はしごを作る</button>
+  </div>
+</section>
+
+<!-- =========================================================================
+     SCREEN 2 : LADDER
+     ====================================================================== -->
+<section id="ladder" class="screen">
+  <div class="lad-head">
+    <div>
+      <div class="lad-title">발표 순서 추첨<span class="ja">発表順抽選</span></div>
+      <div class="brand-s" id="bT2" style="margin-top:5px">2026 Korea-Japan Bridge Ideathon</div>
+    </div>
+    <div class="lad-tools">
+      <div class="counter"><b id="cDone">0</b><span>/</span><span id="cAll">5</span></div>
+      <button class="btn sm" id="bAll">전체 출발 · 全体スタート</button>
+      <button class="btn sm primary" id="bRes" style="display:none">결과 보기 · 結果</button>
+      <button class="btn sm ghost" id="bShuffle">다시 섞기 · 再生成</button>
+      <button class="btn sm ghost" id="bFs">전체화면 <span class="kb">F</span></button>
+      <button class="btn sm" id="bBack">⚙ 설정으로 · 設定へ</button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="row-cards" id="topRow"></div>
+    <div class="canvas-wrap"><canvas id="lad"></canvas></div>
+    <div class="row-cards" id="botRow"></div>
+  </div>
+
+  <div class="lad-foot">
+    <div class="tip" id="tip">팀 카드를 클릭하면 출발합니다 <span class="ja">/ チームカードをクリックしてスタート</span></div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     SCREEN 3 : RESULT
+     ====================================================================== -->
+<section id="result" class="screen">
+  <div class="brandbar" style="width:100%">
+    <div>
+      <div class="brand-t" id="bT3">2026 Korea-Japan Bridge Ideathon</div>
+      <div class="brand-s" id="bS3">한신대학교 × 시모노세키 시립대학교</div>
+    </div>
+    <div class="brand-r">Bridge ideas, Build the future!</div>
+  </div>
+  <div class="res-head" style="margin-top:18px">
+    <h1>발표 순서<span class="ja">発表順序</span></h1>
+  </div>
+  <div class="res-list" id="resList"></div>
+  <div class="res-foot">
+    <button class="btn" id="bPng">결과 이미지 저장 · 画像保存</button>
+    <button class="btn" id="bLadBack">사다리 보기 · はしご</button>
+    <button class="btn" id="bHome">⚙ 설정으로 · 設定へ</button>
+  </div>
+</section>
+
+<div id="cd">
+  <div class="ring"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="47" id="cdRing"/></svg></div>
+  <div class="num" id="cdNum">3</div>
+</div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* ============================================================================
+   §1  I18N  —  ko / ja / en / zh  4개국어 데이터
+   ----------------------------------------------------------------------------
+   [이관 메모] 이번 HTML 버전은 RENDER_LANGS = ['ko','ja'] 병기 고정.
+   정식 웹사이트에서는 RENDER_LANGS 를 ['ko'] / ['ja'] / ['en'] / ['zh'] 로
+   바꾸는 토글만 붙이면 그대로 단일 언어 모드가 된다.
+   ========================================================================= */
+const RENDER_LANGS = ['ko','ja'];
+
+const L = {
+  nth:{
+    ko:n=>`${n}번째 발표`, ja:n=>`${n}番目 発表`,
+    en:n=>`Presentation #${n}`, zh:n=>`第${n}位 发表`
+  },
+  nthShort:{
+    ko:n=>`${n}번째`, ja:n=>`${n}番目`, en:n=>`#${n}`, zh:n=>`第${n}位`
+  },
+  tipClick:{ko:'팀 카드를 클릭하면 출발합니다',ja:'チームカードをクリックしてスタート',
+            en:'Click a team card to start',zh:'点击队伍卡片开始'},
+  tipRun:{ko:'이동 중…',ja:'移動中…',en:'Running…',zh:'进行中…'},
+  tipDone:{ko:'추첨 완료! 결과를 확인하세요',ja:'抽選完了！結果をご確認ください',
+           en:'Draw complete!',zh:'抽签完成！'},
+  tipAll:{ko:'전체 출발 버튼을 누르세요',ja:'「全体スタート」を押してください',
+          en:'Press Start All',zh:'请按全体开始'},
+  savedPng:{ko:'결과 이미지를 저장했습니다',ja:'結果画像を保存しました',
+            en:'Result image saved',zh:'已保存结果图片'},
+  reshuffled:{ko:'사다리를 새로 만들었습니다',ja:'はしごを作り直しました',
+              en:'Ladder regenerated',zh:'已重新生成'},
+  needName:{ko:'팀 이름을 모두 입력해 주세요',ja:'チーム名をすべて入力してください',
+            en:'Please fill in all team names',zh:'请填写所有队伍名称'},
+  resetOk:{ko:'설정을 초기화했습니다',ja:'設定をリセットしました',
+           en:'Settings reset',zh:'设置已重置'}
+};
+/* 병기 문자열 생성: 한국어 / 일본어 두 줄 */
+function t(key,arg){
+  const e=L[key];
+  return RENDER_LANGS.map(lg=>typeof e[lg]==='function'?e[lg](arg):e[lg]);
+}
+function tHtml(key,arg){
+  const a=t(key,arg);
+  return a[0]+(a[1]?`<span class="ja">${a[1]}</span>`:'');
+}
+function tInline(key,arg){
+  const a=t(key,arg);
+  return a[0]+(a[1]?` <span class="ja" style="display:inline;font-size:.86em;opacity:.6;margin:0">/ ${a[1]}</span>`:'');
+}
+
+/* ============================================================================
+   §2  CONFIG / STATE
+   ========================================================================= */
+/* 10팀까지는 현수막 톤에서 고른 색을 그대로 쓰고,
+   11팀 이상은 색상환을 균등 분할해 겹치지 않는 색을 자동 생성한다(최대 20팀). */
+const TEAM_COLORS=[
+  '#C77DE0','#4FC3D9','#7BE0C0','#6C8FE8','#A78BFA',
+  '#F49AC8','#5FD6B0','#8FB8FF','#B58CF5','#63D9E8'
+];
+const MAX_TEAMS=20;
+function teamColors(n){
+  if(n<=TEAM_COLORS.length) return TEAM_COLORS.slice(0,n);
+  const out=[];
+  for(let i=0;i<n;i++){
+    const h=(268+i*(360/n))%360;              // 보라(268°)에서 시작해 균등 분할
+    const l=i%2?64:73, sa=i%3===2?58:70;      // 명도·채도를 번갈아 줘 인접 색 구분 강화
+    out.push(hsl(h,sa,l));
+  }
+  return out;
+}
+/* 어두운 카드 위에서 팀 컬러가 또렷하게 보이도록 밝게 보정 */
+function lighten(hex,k){
+  const m=hex.replace('#','');
+  const v=[0,2,4].map(i=>parseInt(m.substr(i,2),16));
+  const o=v.map(c=>Math.round(c+(255-c)*k));
+  return '#'+o.map(c=>c.toString(16).padStart(2,'0')).join('');
+}
+function hsl(h,s,l){
+  s/=100;l/=100;
+  const k=n=>(n+h/30)%12, a=s*Math.min(l,1-l);
+  const f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));
+  const hex=v=>Math.round(v*255).toString(16).padStart(2,'0');
+  return '#'+hex(f(0))+hex(f(8))+hex(f(4));
+}
+const FONT_PRESETS=[
+  {v:'',            n:'기본 (자동) / 標準'},
+  {v:'Pretendard',  n:'Pretendard'},
+  {v:'Malgun Gothic',n:'맑은 고딕 / Malgun Gothic'},
+  {v:'NanumGothic', n:'나눔고딕 / NanumGothic'},
+  {v:'NanumSquare', n:'나눔스퀘어 / NanumSquare'},
+  {v:'NanumSquareRound',n:'나눔스퀘어라운드'},
+  {v:'Noto Sans KR',n:'Noto Sans KR'},
+  {v:'Noto Sans JP',n:'Noto Sans JP'},
+  {v:'Yu Gothic',   n:'游ゴシック / Yu Gothic'},
+  {v:'Meiryo',      n:'メイリオ / Meiryo'},
+  {v:'S-Core Dream 5', n:'에스코어드림 / S-Core Dream'},
+  {v:'GmarketSansMedium',n:'G마켓 산스 / Gmarket Sans'},
+  {v:'__custom__',  n:'직접 입력… / 直接入力…'}
+];
+const PRESET_TEAMS=['kirakira','糸','Genius','Ace','POMPOM'];
+const DEF={
+  title:'2026 Korea-Japan Bridge Ideathon',
+  sub:'한신대학교 × 시모노세키 시립대학교',
+  font:'', fontCustom:'',
+  n:5, teams:PRESET_TEAMS.slice(),
+  mode:'one', useCount:true, useFx:true, showNo:false
+};
+
+let S=Object.assign({},DEF,{teams:DEF.teams.slice()});
+let G=null;   // 현재 게임 상태
+
+const $=s=>document.querySelector(s);
+const $$=s=>Array.from(document.querySelectorAll(s));
+
+/* crypto 기반 균등 난수 */
+function rndInt(max){
+  if(max<=0)return 0;
+  const lim=Math.floor(4294967296/max)*max;
+  const b=new Uint32Array(1);
+  let v;do{crypto.getRandomValues(b);v=b[0];}while(v>=lim);
+  return v%max;
+}
+const rnd=()=>{const b=new Uint32Array(1);crypto.getRandomValues(b);return b[0]/4294967296;};
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=rndInt(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+function toast(msg){
+  const el=$('#toast');el.innerHTML=msg;el.classList.add('on');
+  clearTimeout(toast._t);toast._t=setTimeout(()=>el.classList.remove('on'),2200);
+}
+function save(){try{localStorage.setItem('sadari_v1',JSON.stringify(S));}catch(e){}}
+function load(){
+  try{const r=localStorage.getItem('sadari_v1');if(r)S=Object.assign({},DEF,JSON.parse(r));}catch(e){}
+  if(!Array.isArray(S.teams))S.teams=DEF.teams.slice();
+}
+
+/* ============================================================================
+   §3  SETUP SCREEN
+   ========================================================================= */
+function applyFont(){
+  const f=(S.font==='__custom__'?S.fontCustom:S.font)||'Pretendard';
+  document.documentElement.style.setProperty('--font-user',`"${f}"`);
+}
+function applyBrand(){
+  ['#bT1','#bT2','#bT3'].forEach(s=>{const e=$(s);if(e)e.textContent=S.title||DEF.title;});
+  ['#bS1','#bS3'].forEach(s=>{const e=$(s);if(e)e.textContent=S.sub||'';});
+  document.title=(S.title||DEF.title)+' · 발표 순서 추첨';
+}
+function renderTeamList(){
+  const box=$('#teamList');box.innerHTML='';
+  const COL=teamColors(S.n);
+  for(let i=0;i<S.n;i++){
+    const row=document.createElement('div');row.className='trow';
+    const c=COL[i];
+    row.innerHTML=
+      `<div class="tdot" style="background:${c};box-shadow:0 4px 14px ${c}55">${i+1}</div>`+
+      `<input class="inp" data-i="${i}" placeholder="Team ${i+1}" value="${(S.teams[i]||'').replace(/"/g,'&quot;')}">`+
+      `<div class="dest">${tHtml('nth',i+1)}</div>`;
+    box.appendChild(row);
+  }
+  box.querySelectorAll('input').forEach(inp=>{
+    inp.addEventListener('input',e=>{S.teams[+e.target.dataset.i]=e.target.value;save();});
+  });
+}
+function syncSetup(){
+  $('#fTitle').value=S.title;$('#fSub').value=S.sub;
+  $('#cVal').textContent=S.n;
+  $('#fFontSel').value=S.font;
+  $('#fFontCustom').value=S.fontCustom;
+  $('#fFontCustomWrap').style.display=S.font==='__custom__'?'':'none';
+  $$('#fMode button').forEach(b=>b.classList.toggle('on',b.dataset.v===S.mode));
+  $('#tgCount').classList.toggle('on',S.useCount);
+  $('#tgFx').classList.toggle('on',S.useFx);
+  $('#tgNo').classList.toggle('on',S.showNo);
+  document.body.classList.toggle('noeffect',!S.useFx);
+  renderTeamList();applyFont();applyBrand();
+}
+function initSetup(){
+  const sel=$('#fFontSel');
+  FONT_PRESETS.forEach(f=>{const o=document.createElement('option');o.value=f.v;o.textContent=f.n;sel.appendChild(o);});
+  sel.addEventListener('change',e=>{
+    S.font=e.target.value;
+    $('#fFontCustomWrap').style.display=S.font==='__custom__'?'':'none';
+    applyFont();save();
+  });
+  $('#fFontCustom').addEventListener('input',e=>{S.fontCustom=e.target.value;applyFont();save();});
+  $('#fTitle').addEventListener('input',e=>{S.title=e.target.value;applyBrand();save();});
+  $('#fSub').addEventListener('input',e=>{S.sub=e.target.value;applyBrand();save();});
+  $('#cMinus').addEventListener('click',()=>{if(S.n>2){S.n--;syncSetup();save();}});
+  $('#cPlus').addEventListener('click',()=>{if(S.n<MAX_TEAMS){S.n++;if(!S.teams[S.n-1])S.teams[S.n-1]='';syncSetup();save();}});
+  $$('#fMode button').forEach(b=>b.addEventListener('click',()=>{S.mode=b.dataset.v;syncSetup();save();}));
+  $('#tgCount').addEventListener('click',()=>{S.useCount=!S.useCount;syncSetup();save();});
+  $('#tgFx').addEventListener('click',()=>{S.useFx=!S.useFx;syncSetup();save();});
+  $('#tgNo').addEventListener('click',()=>{S.showNo=!S.showNo;syncSetup();save();});
+  $('#bPreset').addEventListener('click',()=>{
+    S.n=5;S.teams=PRESET_TEAMS.slice();S.title=DEF.title;S.sub=DEF.sub;syncSetup();save();
+  });
+  $('#bReset').addEventListener('click',()=>{
+    S=Object.assign({},DEF,{teams:DEF.teams.slice()});syncSetup();save();toast(tInline('resetOk'));
+  });
+  $('#bStart').addEventListener('click',()=>{
+    for(let i=0;i<S.n;i++) if(!(S.teams[i]||'').trim()) S.teams[i]='Team '+(i+1);
+    renderTeamList();save();startGame();
+  });
+}
+
+/* ============================================================================
+   §4  DRAW  —  추첨 알고리즘
+   ----------------------------------------------------------------------------
+   왜 이렇게 하나?
+     가로줄을 무작위로 뿌리기만 하면 결과가 균등하지 않다. 사다리는 한 번에 옆으로
+     한 칸씩만 움직이므로, 가로줄 개수가 유한하면 끝 줄은 끝에 머무를 확률이 높다.
+     실측(5팀·14행·20만회): 1번 줄 → 1번 도착 27.0% vs 5번 도착 12.7%
+     (가로줄을 8배로 깔면 균등해지지만 화면이 지저분해진다)
+
+   그래서 순서를 뒤집었다.
+     ① 결과 순열 π 를 crypto 기반 Fisher-Yates 로 먼저 균등하게 뽑는다 (모든 n! 균등)
+     ② 위·아래에 자유 랜덤 가로줄 블록 A, B 를 깐다
+     ③ 가운데 보정 블록 C 를 odd-even transposition network 로 만들어
+        B∘C∘A = π 가 되도록 맞춘다.  C = B⁻¹ ∘ π ∘ A⁻¹
+        (network 는 각 행이 서로 겹치지 않는 인접쌍만 쓰므로 그대로 사다리 행이 된다)
+
+   ④ 연결선은 직선과 대각 곡선을 섞어 그린다(대략 45:55). 기울기 방향·높이가 선마다
+      달라서, 가로선이 줄지어 있을 때보다 눈으로 경로를 미리 따라가기 어렵다.
+   ⑤ 자유 블록 A·B 는 칸(세로줄 사이)마다 MIN_PER_GAP 개를 반드시 채우므로,
+      어느 칸도 비어 보이지 않는다. A·B 의 개수를 늘려도 C 가 보정하므로 결과는 불변.
+
+   결과: 상단 팀 순서는 입력 그대로 고정되고, 사다리 모양은 매번 새로 바뀌며,
+        화면의 사다리를 실제로 타고 내려간 결과가 곧 균등 추첨 결과다.
+        보정이나 눈속임은 없다 — 사다리 자체가 π 를 구현하도록 그려진 것뿐이다.
+   ========================================================================= */
+
+/* ----------------------------------------------------------------------------
+   연결선(rung) 표현
+     {a,b,h0,h1}  이웃한 세로줄 a, b(=a+1) 를 잇는 연결선.
+     h0,h1 은 해당 행 밴드 안에서의 상대 높이(0~1).
+       h0 == h1  → 직선
+       h0 != h1  → 대각 곡선 (기울기 방향은 랜덤)
+     행 높이는 그 행에 대각선이 있으면 넓게, 직선만 있으면 좁게 가변 배분되어
+     (§6 layout) 대각선의 기울기가 더 살아난다.
+   ------------------------------------------------------------------------- */
+function mkRung(a,b,diag){
+  const isDiag=(diag===undefined)?(rnd()<0.55):diag;
+  if(!isDiag){const h=0.12+rnd()*0.76;return {a,b,h0:h,h1:h};}   // 직선(행 안에서 높이 랜덤)
+  const d=0.74+rnd()*0.24, up=rnd()<0.5;                          // 대각선(기울기 방향 랜덤)
+  return {a,b,h0:up?0.5-d/2:0.5+d/2,h1:up?0.5+d/2:0.5-d/2};
+}
+/* 자유 블록 — 칸(세로줄 사이)마다 perGap 개를 '등간격'으로 배치.
+   · 한 행에는 이웃 칸을 같이 놓을 수 없다(가운데 세로줄을 공유 → 경로가 모호해짐)
+   · 그래서 짝수 칸과 홀수 칸의 목표 행 위상을 서로 어긋나게 잡는다(0.22 / 0.72)
+     → 이웃 칸끼리 자리 다툼이 거의 없어 원하는 위치에 그대로 들어간다
+   · 같은 칸의 연결선끼리는 최소 2행 이상 떨어지도록 강제 → 뭉침 방지
+   · 빈 행도 그대로 유지한다(행 높이가 균일하므로 빈 행이 곧 일정한 간격이 된다) */
+function buildFreeBlock(n,perGap){
+  const G=n-1, R=2*perGap+3, step=R/perGap;
+  const rows=Array.from({length:R},()=>[]);
+  const used=Array.from({length:R},()=>new Set());
+  for(const i of shuffle([...Array(G).keys()])){
+    const kinds=[];for(let k=0;k<perGap;k++)kinds.push(k%2===0);shuffle(kinds);
+    const phase=(i%2)?0.72:0.22, mine=[];
+    for(let k=0;k<perGap;k++){
+      const t=Math.round((k+phase)*step+(rnd()*1.6-0.8));
+      let best=-1;
+      for(let pass=0;pass<2&&best<0;pass++){
+        for(let d=0;d<R&&best<0;d++){
+          for(const r of [t+d,t-d]){
+            if(r<0||r>=R)continue;
+            if(used[r].has(i)||used[r].has(i+1))continue;
+            if(pass===0&&mine.some(pr=>Math.abs(pr-r)<2))continue;
+            best=r;break;
+          }
+        }
+      }
+      if(best<0)continue;
+      rows[best].push(mkRung(i,i+1,kinds[k]));
+      used[best].add(i);used[best].add(i+1);mine.push(best);
+    }
+  }
+  return rows;
+}
+/* 세로줄 c 에서 출발해 도착하는 세로줄 번호 */
+function walk(rungs,c){
+  for(let r=0;r<rungs.length;r++){
+    const row=rungs[r];
+    for(let k=0;k<row.length;k++){
+      const g=row[k];
+      if(g.a===c){c=g.b;break;}
+      if(g.b===c){c=g.a;break;}
+    }
+  }
+  return c;
+}
+const blockPerm=(rows,n)=>{const p=[];for(let c=0;c<n;c++)p[c]=walk(rows,c);return p;};
+const invPerm=p=>{const q=[];p.forEach((v,i)=>q[v]=i);return q;};
+
+/* odd-even transposition network: key 배열을 오름차순으로 만드는 행들을 반환.
+   각 행은 (0,1)(2,3)… / (1,2)(3,4)… 로 인접쌍이 겹치지 않아 사다리 한 행으로 그대로 쓸 수 있다.
+   n 라운드면 어떤 순열이든 반드시 구현된다는 것이 증명되어 있다. */
+function oddEvenRows(key,n){
+  const k=key.slice(),rows=[];
+  for(let r=0;r<n;r++){
+    const row=[];
+    for(let j=r%2;j+1<n;j+=2)
+      if(k[j]>k[j+1]){const t=k[j];k[j]=k[j+1];k[j+1]=t;row.push(mkRung(j,j+1));}
+    rows.push(row);
+  }
+  return rows;
+}
+
+/* 칸(세로줄 사이)마다 보장할 최소 연결선 수 — 화면 밀도를 좌우한다 */
+const MIN_PER_GAP=8;
+
+/* 균등 추첨 사다리 생성 → {rungs, pi} */
+function buildFairLadder(n){
+  const half=Math.ceil(MIN_PER_GAP/2);
+  const A=buildFreeBlock(n,half), B=buildFreeBlock(n,half);   // ② 위·아래 자유 블록
+  const pi=shuffle([...Array(n).keys()]);                     // ① 균등 랜덤 결과
+  const Ai=invPerm(blockPerm(A,n)), Bi=invPerm(blockPerm(B,n));
+  const C=[];for(let x=0;x<n;x++)C[x]=Bi[pi[Ai[x]]];          // ③ C = B⁻¹∘π∘A⁻¹
+  const rungs=A.concat(oddEvenRows(C,n),B);
+  return {rungs,pi};
+}
+
+function startGame(){
+  const n=S.n;
+  const teams=[];
+  const COL=teamColors(n);
+  for(let i=0;i<n;i++) teams.push({name:S.teams[i]||('Team '+(i+1)),no:i+1,color:COL[i]});
+  const {rungs}=buildFairLadder(n);
+  const order=[...Array(n).keys()];                   // 상단은 입력 순서 그대로
+  const dest=[];for(let c=0;c<n;c++)dest[c]=walk(rungs,c);
+  G={n,teams,order,rows:rungs.length,rungs,dest,
+     results:new Array(n).fill(-1),done:0,running:false,orbs:[],cols:[],rowY:[]};
+  buildLadderDOM();
+  showScreen('ladder');
+  requestAnimationFrame(()=>{layout();loopStart();});
+}
+
+/* ============================================================================
+   §5  LADDER SCREEN  —  DOM
+   ========================================================================= */
+function buildLadderDOM(){
+  const top=$('#topRow'),bot=$('#botRow');
+  top.innerHTML='';bot.innerHTML='';
+  for(let c=0;c<G.n;c++){
+    const tm=G.teams[G.order[c]];
+    const el=document.createElement('div');
+    el.className='tcard'+(S.mode==='one'?' click':'');
+    el.dataset.col=c;
+    el.innerHTML=`<div class="bar" style="background:linear-gradient(90deg,${tm.color},${tm.color}00)"></div>`+
+                 (S.showNo?`<div class="no">Team ${tm.no}</div>`:'')+
+                 `<div class="nm">${esc(tm.name)}</div>`;
+    el.style.borderColor=tm.color+'88';
+    el.style.boxShadow=`0 10px 30px ${tm.color}22`;
+    if(S.mode==='one') el.addEventListener('click',()=>runOne(c));
+    top.appendChild(el);
+  }
+  for(let j=0;j<G.n;j++){
+    const el=document.createElement('div');
+    el.className='dcard';el.dataset.dest=j;
+    el.innerHTML=`<div class="ord">${tHtml('nth',j+1)}</div><div class="q">? ? ?</div>`;
+    bot.appendChild(el);
+  }
+  const dc=G.n>=13?'d2':(G.n>=8?'d1':'');
+  top.className='row-cards'+(dc?' '+dc:'');
+  bot.className='row-cards'+(dc?' '+dc:'');
+  $('#cAll').textContent=G.n;$('#cDone').textContent='0';
+  $('#bAll').style.display=S.mode==='all'?'':'none';
+  $('#bAll').disabled=false;          // 새 판에서는 항상 다시 누를 수 있게
+  $('#bRes').style.display='none';
+  $('#tip').innerHTML=S.mode==='all'?tInline('tipAll'):tInline('tipClick');
+}
+function esc(s){return String(s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
+
+/* ============================================================================
+   §6  CANVAS LAYOUT & RENDER
+   ========================================================================= */
+const RUN_SEC=3.2;    // 구슬이 사다리를 다 내려오는 데 걸리는 시간(초)
+const H_SLOW=0.55;    // 가로 이동 시 감속 비율
+const cv=$('#lad'),cx=cv.getContext('2d');
+let DPR=Math.min(window.devicePixelRatio||1,2);
+let CW=0,CH=0;
+let particles=[];
+
+function layout(){
+  if(!G)return;
+  const wrap=cv.parentElement,r=wrap.getBoundingClientRect();
+  CW=r.width;CH=r.height;
+  cv.width=Math.round(CW*DPR);cv.height=Math.round(CH*DPR);
+  cx.setTransform(DPR,0,0,DPR,0,0);
+  const cards=$$('#topRow .tcard');
+  G.cols=cards.map(el=>{const b=el.getBoundingClientRect();return b.left+b.width/2-r.left;});
+  computeGeometry();
+  G.orbs.forEach(o=>{
+    const k=o.total?o.dist/o.total:0, p=buildPath(o.col);
+    o.pts=p.pts;o.segs=p.segs;o.total=p.total;o.wtotal=p.wtotal;
+    o.v=p.wtotal/RUN_SEC;o.dist=p.total*k;
+  });
+}
+/* 행 높이를 균일하게 깔고, 각 연결선의 실제 y 좌표를 정한다.
+   대각선은 위아래로 '이웃 칸(i-1,i,i+1)의 연결선이 없는 빈 행'만큼 늘려서 기울기를 살린다.
+   빈 행으로만 확장하므로 세로줄을 공유하는 다른 연결선과 절대 겹치지 않는다 → 결과 불변. */
+function computeGeometry(){
+  const R=G.rows,rows=G.rungs;
+  const pad=Math.max(8,CH*0.018), usable=CH-pad*2, gh=usable/R;
+  G.rowY=[];for(let r=0;r<R;r++)G.rowY.push(pad+r*gh);
+  const occ=rows.map(row=>new Set(row.map(g=>g.a)));
+  const hit=(r,i)=>r<0||r>=R||occ[r].has(i-1)||occ[r].has(i)||occ[r].has(i+1);
+  const M=Math.min(7,gh*0.22), MAXH=gh*3.4;
+  for(let r=0;r<R;r++){
+    for(const g of rows[r]){
+      const yc=pad+(r+0.5)*gh;
+      if(Math.abs(g.h0-g.h1)<0.02){g.ya=g.yb=yc;continue;}   // 직선
+      let up=r,dn=r;
+      while(!hit(up-1,g.a))up--;
+      while(!hit(dn+1,g.a))dn++;
+      let top=pad+up*gh+M, bot=pad+(dn+1)*gh-M;
+      if(bot-top>MAXH){top=yc-MAXH/2;bot=yc+MAXH/2;}
+      if(bot-top<gh*0.5){top=yc-gh*0.25;bot=yc+gh*0.25;}
+      const dnFirst=g.h0<g.h1;
+      g.ya=dnFirst?top:bot; g.yb=dnFirst?bot:top;
+    }
+  }
+}
+
+/* 세로줄 col 에서 출발하는 경로 폴리라인 (대각 곡선을 잘게 샘플링) */
+const BEZ_N=16;
+function bezPts(x0,y0,x1,y1,out){
+  const c=(x1-x0)*0.42;
+  for(let i=1;i<=BEZ_N;i++){
+    const t=i/BEZ_N,u=1-t;
+    out.push({
+      x:u*u*u*x0+3*u*u*t*(x0+c)+3*u*t*t*(x1-c)+t*t*t*x1,
+      y:u*u*u*y0+3*u*u*t*y0      +3*u*t*t*y1      +t*t*t*y1
+    });
+  }
+}
+function buildPath(col){
+  const x=G.cols,pts=[];
+  let c=col;
+  pts.push({x:x[c],y:0});
+  for(let r=0;r<G.rows;r++){
+    for(const g of G.rungs[r]){
+      let nc=-1,ya,yb;
+      if(g.a===c){nc=g.b;ya=g.ya;yb=g.yb;}
+      else if(g.b===c){nc=g.a;ya=g.yb;yb=g.ya;}
+      if(nc<0)continue;
+      pts.push({x:x[c],y:ya});
+      bezPts(x[c],ya,x[nc],yb,pts);
+      c=nc;break;
+    }
+  }
+  pts.push({x:x[c],y:CH});
+  const segs=[];let total=0,wtotal=0;
+  for(let i=1;i<pts.length;i++){
+    const dx=pts[i].x-pts[i-1].x,dy=pts[i].y-pts[i-1].y;
+    const len=Math.hypot(dx,dy),horiz=Math.abs(dx)>Math.abs(dy);
+    segs.push({len,start:total,horiz});
+    total+=len; wtotal+=len*(horiz?1/H_SLOW:1);   // 가로 성분이 큰 구간은 느리게
+  }
+  return {pts,segs,total,wtotal};
+}
+function posAt(o,d){
+  let i=0;
+  while(i<o.segs.length-1&&d>o.segs[i].start+o.segs[i].len)i++;
+  const s=o.segs[i],a=o.pts[i],b=o.pts[i+1];
+  const k=s.len?Math.min(1,Math.max(0,(d-s.start)/s.len)):1;
+  return {x:a.x+(b.x-a.x)*k,y:a.y+(b.y-a.y)*k,seg:i,horiz:s.horiz};
+}
+
+/* --- 파티클 ------------------------------------------------------------- */
+function spark(x,y,color,count,power){
+  if(!S.useFx)return;
+  for(let i=0;i<count;i++){
+    const a=rnd()*Math.PI*2,sp=(0.4+rnd())*power;
+    particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-0.4,
+      life:1,decay:0.014+rnd()*0.022,size:1.3+rnd()*2.6,color});
+  }
+  if(particles.length>460)particles.splice(0,particles.length-460);
+}
+function stepParticles(dt){
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx*dt*60;p.y+=p.vy*dt*60;
+    p.vy+=0.045*dt*60;p.vx*=0.985;p.vy*=0.985;
+    p.life-=p.decay*dt*60;
+    if(p.life<=0)particles.splice(i,1);
+  }
+}
+/* --- 사다리 본체 --------------------------------------------------------- */
+function drawBase(){
+  const x=G.cols;
+  cx.lineCap='round';
+  cx.strokeStyle='rgba(255,255,255,.20)';cx.lineWidth=3;
+  cx.beginPath();
+  for(let c=0;c<G.n;c++){cx.moveTo(x[c],0);cx.lineTo(x[c],CH);}
+  cx.stroke();
+  // 연결선(대각 곡선)
+  cx.strokeStyle='rgba(255,255,255,.30)';cx.lineWidth=3.4;
+  cx.beginPath();
+  for(let r=0;r<G.rows;r++){
+    for(const g of G.rungs[r]){
+      const xa=x[g.a],xb=x[g.b],ya=g.ya,yb=g.yb,c=(xb-xa)*0.42;
+      cx.moveTo(xa,ya);cx.bezierCurveTo(xa+c,ya,xb-c,yb,xb,yb);
+    }
+  }
+  cx.stroke();
+  cx.fillStyle='rgba(255,255,255,.34)';
+  for(let r=0;r<G.rows;r++){
+    for(const g of G.rungs[r]){
+      cx.beginPath();cx.arc(x[g.a],g.ya,3,0,7);cx.fill();
+      cx.beginPath();cx.arc(x[g.b],g.yb,3,0,7);cx.fill();
+    }
+  }
+}
+/* --- 트레일 -------------------------------------------------------------- */
+function drawTrail(o){
+  const d=o.dist,fin=o.finished;
+  cx.lineCap='round';cx.lineJoin='round';
+  cx.save();
+  if(S.useFx){cx.shadowColor=o.color;cx.shadowBlur=fin?10:22;}
+  cx.strokeStyle=o.color;
+  cx.globalAlpha=fin?0.42:0.9;
+  cx.lineWidth=fin?4:6;
+  cx.beginPath();cx.moveTo(o.pts[0].x,o.pts[0].y);
+  let i=1;
+  for(;i<o.pts.length;i++){
+    const s=o.segs[i-1];
+    if(s.start+s.len<=d)cx.lineTo(o.pts[i].x,o.pts[i].y);
+    else break;
+  }
+  if(!fin){const p=posAt(o,d);cx.lineTo(p.x,p.y);}
+  cx.stroke();
+  cx.restore();
+}
+function drawOrb(o){
+  const p=posAt(o,o.dist);
+  const R=13;
+  cx.save();
+  if(S.useFx){cx.shadowColor=o.color;cx.shadowBlur=30;}
+  const g=cx.createRadialGradient(p.x,p.y,0,p.x,p.y,R);
+  g.addColorStop(0,'#ffffff');g.addColorStop(.42,o.color);g.addColorStop(1,o.color+'00');
+  cx.fillStyle=g;cx.beginPath();cx.arc(p.x,p.y,R,0,7);cx.fill();
+  cx.restore();
+  cx.fillStyle='#fff';cx.beginPath();cx.arc(p.x,p.y,3.6,0,7);cx.fill();
+}
+function render(){
+  cx.clearRect(0,0,CW,CH);
+  if(!G)return;
+  drawBase();
+  G.orbs.filter(o=>o.finished).forEach(drawTrail);
+  G.orbs.filter(o=>!o.finished).forEach(drawTrail);
+  if(S.useFx){
+    cx.save();cx.globalCompositeOperation='lighter';
+    for(const p of particles){
+      cx.globalAlpha=Math.max(0,p.life)*0.9;
+      cx.fillStyle=p.color;
+      cx.beginPath();cx.arc(p.x,p.y,p.size,0,7);cx.fill();
+    }
+    cx.restore();cx.globalAlpha=1;
+  }
+  G.orbs.filter(o=>!o.finished).forEach(drawOrb);
+}
+
+/* ============================================================================
+   §7  ANIMATION LOOP & RUN CONTROL
+   ========================================================================= */
+let rafId=0,lastT=0;
+function loopStart(){cancelAnimationFrame(rafId);lastT=performance.now();rafId=requestAnimationFrame(tick);}
+function loopStop(){cancelAnimationFrame(rafId);rafId=0;}
+function tick(now){
+  const dt=Math.min(0.05,(now-lastT)/1000);lastT=now;
+  stepOrbs(dt);stepParticles(dt);render();
+  rafId=requestAnimationFrame(tick);
+}
+function stepOrbs(dt){
+  if(!G)return;
+  for(const o of G.orbs){
+    if(o.finished)continue;
+    if(o.delay>0){o.delay-=dt;continue;}
+    const cur=posAt(o,o.dist);
+    o.dist+=o.v*(cur.horiz?H_SLOW:1)*dt;
+    const np=posAt(o,Math.min(o.dist,o.total));
+    if(np.seg!==o.lastSeg){
+      if(o.lastSeg>=0){
+        const j=o.pts[np.seg];
+        spark(j.x,j.y,o.color,np.horiz?11:9,2.5);
+      }
+      o.lastSeg=np.seg;
+    }
+    if(S.useFx&&rnd()<0.55){
+      particles.push({x:np.x+(rnd()-.5)*5,y:np.y+(rnd()-.5)*5,
+        vx:(rnd()-.5)*.7,vy:(rnd()-.5)*.7,life:1,decay:.05+rnd()*.03,
+        size:1+rnd()*1.8,color:o.color});
+    }
+    if(o.dist>=o.total){o.dist=o.total;arrive(o);}
+  }
+}
+function arrive(o){
+  o.finished=true;
+  const p=o.pts[o.pts.length-1];
+  spark(p.x,p.y-6,o.color,30,4.2);
+  spark(p.x,p.y-6,'#ffffff',12,3.0);
+  const dj=G.dest[o.col];
+  G.results[dj]=o.teamIdx;
+  const tm=G.teams[o.teamIdx];
+  const card=$(`#botRow .dcard[data-dest="${dj}"]`);
+  card.classList.add('filled','pop');
+  card.style.borderColor=tm.color;
+  card.style.borderWidth='3px';
+  card.style.boxShadow=`0 10px 34px ${tm.color}66, 0 0 0 1px ${tm.color}99, inset 0 0 26px rgba(8,6,26,.45)`;
+  card.innerHTML=`<div class="ord" style="opacity:.9">${tHtml('nth',dj+1)}</div>`+
+                 `<div class="win" style="color:${lighten(tm.color,0.3)}">${esc(tm.name)}</div>`;
+  setTimeout(()=>card.classList.remove('pop'),700);
+  $(`#topRow .tcard[data-col="${o.col}"]`).classList.remove('active');
+  $(`#topRow .tcard[data-col="${o.col}"]`).classList.add('done');
+  G.done++;$('#cDone').textContent=G.done;
+  if(G.done>=G.n){
+    G.running=false;
+    $('#bRes').style.display='';
+    $('#tip').innerHTML=tInline('tipDone');
+    setTimeout(()=>showResult(),1500);
+  }else if(S.mode==='one'){
+    G.running=false;
+    $('#tip').innerHTML=tInline('tipClick');
+  }
+}
+function launch(col,delay){
+  const p=buildPath(col);
+  G.orbs.push({col,teamIdx:G.order[col],color:G.teams[G.order[col]].color,
+    dist:0,pts:p.pts,segs:p.segs,total:p.total,wtotal:p.wtotal,
+    v:p.wtotal/RUN_SEC,                       // 경로 길이와 무관하게 RUN_SEC 초에 도착
+    finished:false,lastSeg:-1,delay:delay||0});
+}
+async function runOne(col){
+  if(!G||G.running)return;
+  if(G.orbs.some(o=>o.col===col))return;
+  G.running=true;
+  $(`#topRow .tcard[data-col="${col}"]`).classList.add('active');
+  $('#tip').innerHTML=tInline('tipRun');
+  if(S.useCount)await countdown(2);
+  launch(col,0);
+}
+async function runAll(){
+  if(!G||G.running||G.orbs.length)return;
+  G.running=true;
+  $('#bAll').disabled=true;
+  $('#tip').innerHTML=tInline('tipRun');
+  if(S.useCount)await countdown(3);
+  for(let c=0;c<G.n;c++)launch(c,c*0.16);
+}
+
+/* --- 드럼롤 카운트다운 ---------------------------------------------------- */
+const CIRC=2*Math.PI*47;
+function countdown(from){
+  return new Promise(res=>{
+    const box=$('#cd'),num=$('#cdNum'),ring=$('#cdRing');
+    box.classList.add('on');
+    let i=from;
+    const step=()=>{
+      if(i<=0){
+        box.classList.remove('on');
+        const s=document.createElement('div');s.className='shock';
+        document.body.appendChild(s);
+        requestAnimationFrame(()=>s.classList.add('go'));
+        setTimeout(()=>s.remove(),900);
+        res();return;
+      }
+      num.textContent=i;
+      num.classList.remove('cd-tick');void num.offsetWidth;num.classList.add('cd-tick');
+      const t0=performance.now();
+      const anim=n=>{
+        const k=Math.min(1,(n-t0)/900);
+        ring.style.strokeDasharray=CIRC;
+        ring.style.strokeDashoffset=CIRC*k;
+        if(k<1)requestAnimationFrame(anim);
+      };
+      requestAnimationFrame(anim);
+      i--;setTimeout(step,920);
+    };
+    step();
+  });
+}
+
+/* ============================================================================
+   §8  RESULT
+   ========================================================================= */
+function showResult(){
+  const box=$('#resList');box.innerHTML='';
+  box.classList.toggle('dense',G.n>=8&&G.n<=10);
+  box.classList.toggle('cols2',G.n>=11);
+  box.style.gridTemplateRows=G.n>=11?`repeat(${Math.ceil(G.n/2)},1fr)`:'';
+  for(let j=0;j<G.n;j++){
+    const tm=G.teams[G.results[j]];
+    const row=document.createElement('div');row.className='rrow';
+    row.style.borderColor=tm.color+'99';
+    row.style.background=`linear-gradient(100deg, ${tm.color}33, rgba(9,7,32,.34) 60%)`;
+    row.style.boxShadow=`0 8px 26px rgba(8,6,26,.25), 0 0 0 1px ${tm.color}55`;
+    row.innerHTML=
+      `<div class="rank" style="background:${tm.color};box-shadow:0 8px 26px ${tm.color}66">${j+1}</div>`+
+      `<div class="rinfo"><div class="rord">${tHtml('nth',j+1)}</div>`+
+      `<div class="rname">${esc(tm.name)}</div></div>`+
+      (S.showNo?`<div class="rno">Team ${tm.no}</div>`:'');
+    box.appendChild(row);
+    setTimeout(()=>row.classList.add('in'),120+j*170);
+  }
+  showScreen('result');
+}
+
+/* --- 결과 PNG 저장 -------------------------------------------------------- */
+function exportPng(){
+  const two=G.n>=11, cols=two?2:1;
+  const per=Math.ceil(G.n/cols), rowH=112;
+  const W=two?2280:1600, H=300+per*rowH+60;
+  const c=document.createElement('canvas');c.width=W;c.height=H;
+  const g=c.getContext('2d');
+  const grd=g.createLinearGradient(0,0,W,H);
+  grd.addColorStop(0,'#6E63B0');grd.addColorStop(.45,'#5B8FD4');grd.addColorStop(1,'#4FC3D9');
+  g.fillStyle=grd;g.fillRect(0,0,W,H);
+  const rg=g.createRadialGradient(W*.8,H*.1,0,W*.8,H*.1,W*.7);
+  rg.addColorStop(0,'rgba(168,237,245,.35)');rg.addColorStop(1,'rgba(168,237,245,0)');
+  g.fillStyle=rg;g.fillRect(0,0,W,H);
+  const F=(getComputedStyle(document.documentElement).getPropertyValue('--font-user')||'Pretendard').trim();
+  const FF=`${F}, "Malgun Gothic","Yu Gothic",Meiryo,sans-serif`;
+  g.textBaseline='middle';
+  g.fillStyle='rgba(255,255,255,.78)';g.font=`700 26px ${FF}`;
+  g.fillText(S.title||DEF.title,72,74);
+  g.fillStyle='rgba(255,255,255,.55)';g.font=`600 20px ${FF}`;
+  g.fillText(S.sub||'',72,108);
+  g.fillStyle='#fff';g.font=`900 62px ${FF}`;
+  g.fillText('발표 순서',72,190);
+  g.fillStyle='rgba(255,255,255,.6)';g.font=`700 30px ${FF}`;
+  g.fillText('発表順序',72,240);
+  const pad=72, colGap=40;
+  const cw=(W-pad*2-(cols-1)*colGap)/cols;
+  for(let j=0;j<G.n;j++){
+    const tm=G.teams[G.results[j]];
+    const ci=Math.floor(j/per), ri=j%per;
+    const x=pad+ci*(cw+colGap), y=300+ri*rowH;
+    rr(g,x,y,cw,rowH-16,20);
+    g.fillStyle='rgba(9,7,32,.34)';g.fill();
+    g.strokeStyle=tm.color+'bb';g.lineWidth=3;g.stroke();
+    rr(g,x+24,y+18,60,60,16);g.fillStyle=tm.color;g.fill();
+    g.fillStyle='#161233';g.font=`900 32px ${FF}`;g.textAlign='center';
+    g.fillText(String(j+1),x+54,y+49);
+    g.textAlign='left';
+    g.fillStyle='rgba(255,255,255,.82)';g.font=`700 19px ${FF}`;
+    g.fillText(`${j+1}번째 발표 / ${j+1}番目`,x+108,y+34);
+    g.fillStyle='#fff';g.font=`900 38px ${FF}`;
+    g.fillText(tm.name,x+108,y+68);
+    if(S.showNo){
+      g.fillStyle='rgba(255,255,255,.5)';g.font=`800 20px ${FF}`;g.textAlign='right';
+      g.fillText('TEAM '+tm.no,x+cw-28,y+50);g.textAlign='left';
+    }
+  }
+  g.fillStyle='rgba(255,255,255,.45)';g.font=`600 18px ${FF}`;
+  const D=new Date(),z=n=>String(n).padStart(2,'0');
+  g.fillText(`${D.getFullYear()}.${z(D.getMonth()+1)}.${z(D.getDate())}  ${z(D.getHours())}:${z(D.getMinutes())}`,72,H-38);
+  c.toBlob(b=>{
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(b);
+    a.download=`발표순서_${D.getFullYear()}${z(D.getMonth()+1)}${z(D.getDate())}.png`;
+    a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+    toast(tInline('savedPng'));
+  });
+}
+function rr(g,x,y,w,h,r){
+  g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);
+  g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();
+}
+
+/* ============================================================================
+   §9  BACKGROUND  —  로우폴리 (현수막 패턴 재현)
+   ========================================================================= */
+const bg=$('#bgPoly'),bgx=bg.getContext('2d');
+let pts=[],GC=0,GR=0,bgW=0,bgH=0,bgT=0,bgLast=0;
+function bgInit(){
+  bgW=bg.width=Math.round(innerWidth*DPR);bgH=bg.height=Math.round(innerHeight*DPR);
+  bg.style.width=innerWidth+'px';bg.style.height=innerHeight+'px';
+  const cell=Math.max(150,innerWidth/9)*DPR;
+  GC=Math.ceil(bgW/cell)+1;GR=Math.ceil(bgH/cell)+1;
+  pts=[];
+  for(let r=0;r<=GR;r++)for(let c=0;c<=GC;c++){
+    pts.push({bx:c*cell,by:r*cell,
+      jx:(Math.random()-.5)*cell*.55,jy:(Math.random()-.5)*cell*.55,
+      ph:Math.random()*Math.PI*2,am:8+Math.random()*22});
+  }
+}
+function bgDraw(now){
+  if(now-bgLast<42){requestAnimationFrame(bgDraw);return;}
+  bgLast=now;bgT=now/1000;
+  bgx.clearRect(0,0,bgW,bgH);
+  const P=(r,c)=>{
+    const p=pts[r*(GC+1)+c];
+    return{x:p.bx+p.jx+Math.cos(bgT*.16+p.ph)*p.am,
+           y:p.by+p.jy+Math.sin(bgT*.13+p.ph)*p.am};
+  };
+  for(let r=0;r<GR;r++)for(let c=0;c<GC;c++){
+    const a=P(r,c),b=P(r,c+1),d=P(r+1,c),e=P(r+1,c+1);
+    const k=(r*7+c*13)%10;
+    const tri=(p1,p2,p3,al,dark)=>{
+      bgx.beginPath();bgx.moveTo(p1.x,p1.y);bgx.lineTo(p2.x,p2.y);bgx.lineTo(p3.x,p3.y);bgx.closePath();
+      bgx.fillStyle=dark?`rgba(46,78,158,${al})`:`rgba(255,255,255,${al})`;
+      bgx.fill();
+    };
+    tri(a,b,d,0.018+((k%4)*0.016),k%3===0);
+    tri(b,e,d,0.014+(((k+5)%4)*0.017),(k+2)%3===0);
+  }
+  bgx.strokeStyle='rgba(255,255,255,.045)';bgx.lineWidth=1*DPR;
+  bgx.beginPath();
+  for(let r=0;r<=GR;r++)for(let c=0;c<=GC;c++){
+    const p=P(r,c);
+    if(c<GC){const q=P(r,c+1);bgx.moveTo(p.x,p.y);bgx.lineTo(q.x,q.y);}
+    if(r<GR){const q=P(r+1,c);bgx.moveTo(p.x,p.y);bgx.lineTo(q.x,q.y);}
+  }
+  bgx.stroke();
+  requestAnimationFrame(bgDraw);
+}
+
+/* ============================================================================
+   §10  SCREEN / EVENTS / INIT
+   ========================================================================= */
+let cur='setup';
+function showScreen(id){
+  $$('.screen').forEach(s=>s.classList.remove('on'));
+  $('#'+id).classList.add('on');
+  cur=id;
+  if(id==='ladder'){requestAnimationFrame(()=>{layout();loopStart();});}
+  else if(id!=='ladder'&&id!=='result')loopStop();
+}
+function reshuffle(){
+  if(!G)return;
+  if(G.orbs.length&&G.done<G.n&&G.running)return;
+  const {rungs}=buildFairLadder(G.n);
+  G.rungs=rungs;G.rows=rungs.length;
+  G.dest=[];for(let c=0;c<G.n;c++)G.dest[c]=walk(rungs,c);
+  G.results=new Array(G.n).fill(-1);G.done=0;G.orbs=[];G.running=false;particles=[];
+  buildLadderDOM();
+  $('#bAll').disabled=false;
+  requestAnimationFrame(()=>layout());
+  toast(tInline('reshuffled'));
+}
+
+function toggleFs(){
+  if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(()=>{});
+  else document.exitFullscreen().catch(()=>{});
+}
+
+$('#bAll').addEventListener('click',runAll);
+$('#bRes').addEventListener('click',()=>{if(G&&G.done>=G.n)showResult();});
+$('#bShuffle').addEventListener('click',reshuffle);
+$('#bFs').addEventListener('click',toggleFs);
+$('#bBack').addEventListener('click',()=>{loopStop();showScreen('setup');});
+$('#bPng').addEventListener('click',exportPng);
+$('#bLadBack').addEventListener('click',()=>showScreen('ladder'));
+$('#bHome').addEventListener('click',()=>{loopStop();showScreen('setup');});
+
+document.addEventListener('keydown',e=>{
+  const tag=(e.target.tagName||'').toLowerCase();
+  if(tag==='input'||tag==='select'||tag==='textarea')return;
+  if(e.key==='f'||e.key==='F'){e.preventDefault();toggleFs();}
+  if(cur==='ladder'&&(e.key===' '||e.key==='Enter')){
+    e.preventDefault();
+    if(S.mode==='all')runAll();
+    else{const nx=$$('#topRow .tcard').find(el=>!el.classList.contains('done'));if(nx)nx.click();}
+  }
+  if(cur==='ladder'&&(e.key==='r'||e.key==='R'))reshuffle();
+  if(cur==='setup'&&e.key==='Enter')$('#bStart').click();
+});
+
+let rzT=0;
+addEventListener('resize',()=>{
+  clearTimeout(rzT);
+  rzT=setTimeout(()=>{
+    DPR=Math.min(window.devicePixelRatio||1,2);
+    bgInit();
+    if(cur==='ladder')layout();
+  },140);
+});
+
+/* --- 부팅 ---------------------------------------------------------------- */
+load();
+initSetup();
+syncSetup();
+bgInit();
+requestAnimationFrame(bgDraw);
+if(matchMedia('(prefers-reduced-motion: reduce)').matches){S.useFx=false;S.useCount=false;syncSetup();}
+</script>
+</body>
+</html>

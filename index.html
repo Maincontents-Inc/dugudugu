@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>두구두구</title>
+<meta name="description" content="두구두구 — 팀 순서를 공정하게 정하는 랜덤 추첨 미니게임. 사다리타기, 마블 레이스.">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥁</text></svg>">
+</head>
+<body>
+
+<div id="bgGrad"></div>
+<canvas id="bgPoly"></canvas>
+<div id="vignette"></div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     화면 1 · 설정
+     ══════════════════════════════════════════════════════════════ -->
+<section id="setup" class="screen on">
+  <div class="setup-hero">
+    <div class="kicker">공정한 랜덤 추첨</div>
+    <h1>두구두구</h1>
+    <p class="lead">팀 이름을 넣고 게임을 고르면 순서가 정해집니다</p>
+  </div>
+
+  <div class="grid">
+    <!-- 좌: 행사 정보 -->
+    <div class="col">
+      <div class="card">
+        <h2>행사 정보 <span class="opt">선택</span></h2>
+        <div class="field">
+          <label>제목</label>
+          <input class="inp" id="fTitle" placeholder="비워두면 표시되지 않습니다" maxlength="80">
+        </div>
+        <div class="field">
+          <label>부제</label>
+          <input class="inp" id="fSub" placeholder="비워두면 표시되지 않습니다" maxlength="80">
+        </div>
+        <div class="field">
+          <label>글꼴</label>
+          <select class="inp" id="fFontSel"></select>
+        </div>
+        <div class="field" id="fFontCustomWrap" style="display:none">
+          <label>글꼴 이름 직접 입력</label>
+          <input class="inp" id="fFontCustom" placeholder="예: GmarketSansMedium">
+        </div>
+        <div class="hint">입력한 제목은 게임 화면과 결과 화면 상단에 표시됩니다.
+          PC에 설치된 글꼴 이름을 적으면 그대로 적용됩니다.</div>
+      </div>
+
+      <div class="card">
+        <h2>연출</h2>
+        <div class="toggles">
+          <button class="tg on" id="tgCount"><span class="sw"></span>카운트다운</button>
+          <button class="tg on" id="tgFx"><span class="sw"></span>파티클 효과</button>
+          <button class="tg" id="tgNo"><span class="sw"></span>팀 번호 표시</button>
+        </div>
+        <div class="hint">노트북 사양이 낮아 화면이 끊기면 파티클 효과를 꺼주세요.</div>
+      </div>
+    </div>
+
+    <!-- 우: 팀 -->
+    <div class="card">
+      <h2>팀 <span class="opt">필수</span></h2>
+      <div class="field">
+        <label>팀 수</label>
+        <div class="stepper">
+          <button id="cMinus" aria-label="팀 수 줄이기">−</button>
+          <div class="val" id="cVal">5</div>
+          <button id="cPlus" aria-label="팀 수 늘리기">＋</button>
+          <div class="unit">팀 <span class="dim">(2–20)</span></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>팀 이름</label>
+        <div class="teamlist" id="teamList"></div>
+      </div>
+      <div class="field row-btns">
+        <button class="btn sm ghost" id="bPaste">여러 줄 붙여넣기</button>
+        <button class="btn sm ghost" id="bClear">이름 비우기</button>
+      </div>
+      <div class="hint">엑셀이나 메모장에서 팀 이름을 줄바꿈으로 복사해 한 번에 넣을 수 있습니다.</div>
+    </div>
+  </div>
+
+  <!-- 게임 선택 -->
+  <div class="games-wrap">
+    <h2 class="section-title">게임 선택</h2>
+    <div class="games" id="gameList"></div>
+    <div class="game-opts" id="gameOpts"></div>
+  </div>
+
+  <div class="setup-actions">
+    <button class="btn ghost" id="bReset">초기화</button>
+    <button class="btn primary big" id="bStart">시작하기</button>
+  </div>
+  <div class="foot-note">결과는 이미지로 저장할 수 있습니다</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     화면 2 · 게임
+     ══════════════════════════════════════════════════════════════ -->
+<section id="play" class="screen">
+  <div class="play-head">
+    <div class="ph-left">
+      <div class="game-name" id="pGame">사다리타기</div>
+      <div class="ev-title" id="pTitle"></div>
+      <div class="ev-sub" id="pSub"></div>
+    </div>
+    <div class="ph-right">
+      <div class="counter"><b id="cDone">0</b><span>/</span><span id="cAll">5</span></div>
+      <div class="tool-slot" id="gameTools"></div>
+      <button class="btn sm" id="bRes" style="display:none">결과 보기</button>
+      <button class="btn sm ghost" id="bFs">전체화면 <span class="kb">F</span></button>
+      <button class="btn sm" id="bBack">⚙ 설정으로</button>
+    </div>
+  </div>
+  <div class="stage" id="stage"></div>
+  <div class="play-foot"><div class="tip" id="tip"></div></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     화면 3 · 결과
+     ══════════════════════════════════════════════════════════════ -->
+<section id="result" class="screen">
+  <div class="res-head">
+    <div class="ev-title lg" id="rTitle"></div>
+    <div class="ev-sub" id="rSub"></div>
+    <h1>발표 순서</h1>
+  </div>
+  <div class="res-list" id="resList"></div>
+  <div class="res-foot">
+    <button class="btn" id="bPng">결과 이미지 저장</button>
+    <button class="btn" id="bGameBack">게임 화면 보기</button>
+    <button class="btn" id="bHome">⚙ 설정으로</button>
+  </div>
+</section>
+
+<div id="cd"><div class="ring"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="47" id="cdRing"/></svg></div><div class="num" id="cdNum">3</div></div>
+<div id="toast"></div>
+
+<div id="modal" class="modal">
+  <div class="modal-box">
+    <h3>팀 이름 붙여넣기</h3>
+    <p>한 줄에 한 팀씩 입력하거나 붙여넣으세요. 팀 수는 자동으로 맞춰집니다.</p>
+    <textarea id="pasteArea" class="inp" rows="10" placeholder="kirakira&#10;糸&#10;Genius&#10;Ace&#10;POMPOM"></textarea>
+    <div class="modal-foot">
+      <button class="btn ghost sm" id="pasteCancel">취소</button>
+      <button class="btn primary sm" id="pasteOk">적용</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/core.js"></script>
+<script src="assets/game-ladder.js"></script>
+<script src="assets/game-marble.js"></script>
+<script>Core.boot();</script>
+</body>
+</html>
