@@ -134,7 +134,7 @@ function buildDOM(){
   for(let j=0;j<n;j++){
     const el=document.createElement('div');
     el.className='dcard'; el.dataset.dest=j;
-    el.innerHTML='<div class="ord">'+(j+1)+'번째 발표</div><div class="q">? ? ?</div>';
+    el.innerHTML='<div class="ord">'+H.slot(j)+'</div><div class="q">? ? ?</div>';
     bot.appendChild(el);
   }
   cv=document.getElementById('ldCv'); cx=cv.getContext('2d');
@@ -352,7 +352,7 @@ function arrive(o){
   card.style.borderColor=tm.color;
   card.style.borderWidth='3px';
   card.style.boxShadow='0 10px 34px '+tm.color+'66, 0 0 0 1px '+tm.color+'99, inset 0 0 26px rgba(8,6,26,.45)';
-  card.innerHTML='<div class="ord" style="opacity:.9">'+(dj+1)+'번째 발표</div>'+
+  card.innerHTML='<div class="ord" style="opacity:.9">'+H.slot(dj)+'</div>'+
                  '<div class="win" style="color:'+H.lighten(tm.color,0.3)+'">'+H.esc(tm.name)+'</div>';
   setTimeout(()=>card.classList.remove('pop'),700);
   const tc=document.querySelector('#ldTop .tcard[data-col="'+o.col+'"]');
@@ -417,7 +417,7 @@ window.__ladderAudit = function(n, perGap, trials){
 /* ── 등록 ────────────────────────────────────────────────────────────── */
 Core.registerGame({
   id:'ladder', icon:'🪜', name:'사다리타기',
-  desc:'팀마다 구슬이 사다리를 타고 내려가 발표 순서를 정합니다. 한 팀씩 또는 전체 동시 진행.',
+  desc:'팀마다 구슬이 사다리를 타고 내려가 순서를 정합니다. 한 팀씩 또는 전체 동시 진행.',
 
   optionsHtml(){
     return '<div class="field"><label>진행 방식</label>'+

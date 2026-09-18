@@ -33,8 +33,19 @@ const FONT_PRESETS = [
   {v:'GmarketSansMedium', n:'G마켓 산스'},
   {v:'__custom__',        n:'직접 입력…'}
 ];
+/* 용도 프리셋 — 결과 화면·도착 칸·저장 이미지의 표현을 한 곳에서 관리한다.
+   게임은 host.slot(j) / host.purpose 만 쓰면 되므로, 게임이 늘어나도
+   문구를 게임마다 고칠 일이 없다. 용도를 추가하려면 여기에 한 줄 넣으면 된다. */
+const PURPOSES = {
+  order: { name:'순서 정하기', heading:'순서',      slot:n=>n+'번',        file:'순서'     },
+  talk:  { name:'발표 순서',   heading:'발표 순서', slot:n=>n+'번째 발표', file:'발표순서' },
+  rank:  { name:'순위',        heading:'순위',      slot:n=>n+'등',        file:'순위'     },
+  prize: { name:'추첨 당첨',   heading:'당첨 순서', slot:n=>n+'번째',      file:'추첨결과' }
+};
+const purposeOf = k => PURPOSES[k] || PURPOSES.order;
+
 const DEF = {
-  title:'', sub:'', font:'', fontCustom:'',
+  title:'', sub:'', font:'', fontCustom:'', purpose:'order',
   n:5, teams:['','','','',''],
   game:'ladder', showNo:false, useFx:true, useCount:true,
   opts:{}
@@ -45,7 +56,7 @@ let S = JSON.parse(JSON.stringify(DEF));
 let GAMES = [];
 let active = null;          // 현재 게임 모듈
 let curScreen = 'setup';
-let lastResults = null;     // [발표순서 index] = teamIndex
+let lastResults = null;     // [순서 index] = teamIndex
 let teams = [];             // [{name,no,color}]
 
 const $  = s => document.querySelector(s);
@@ -168,8 +179,13 @@ function renderGameOpts(){
   box.appendChild(card);
   if(g.bindOptions) g.bindOptions(card, S.opts[g.id] = S.opts[g.id]||{}, save);
 }
+function applyPurpose(){
+  const p=purposeOf(S.purpose);
+  const h=$('#rHeading'); if(h) h.textContent=p.heading;
+}
 function syncSetup(){
   $('#fTitle').value=S.title; $('#fSub').value=S.sub;
+  $('#fPurpose').value=S.purpose;
   $('#cVal').textContent=S.n;
   $('#fFontSel').value=S.font; $('#fFontCustom').value=S.fontCustom;
   $('#fFontCustomWrap').style.display = S.font==='__custom__'?'':'none';
@@ -177,9 +193,14 @@ function syncSetup(){
   $('#tgFx').classList.toggle('on',S.useFx);
   $('#tgNo').classList.toggle('on',S.showNo);
   document.body.classList.toggle('noeffect',!S.useFx);
-  renderTeamList(); renderGames(); renderGameOpts(); applyFont(); applyBrand();
+  renderTeamList(); renderGames(); renderGameOpts(); applyFont(); applyBrand(); applyPurpose();
 }
 function initSetup(){
+  const ps=$('#fPurpose');
+  Object.keys(PURPOSES).forEach(k=>{
+    const o=document.createElement('option'); o.value=k; o.textContent=PURPOSES[k].name; ps.appendChild(o);
+  });
+  ps.addEventListener('change',e=>{ S.purpose=e.target.value; applyPurpose(); save(); });
   const sel=$('#fFontSel');
   FONT_PRESETS.forEach(f=>{ const o=document.createElement('option'); o.value=f.v; o.textContent=f.n; sel.appendChild(o); });
   sel.addEventListener('change',e=>{ S.font=e.target.value;
@@ -242,11 +263,14 @@ const host = {
   opts(){ return (S.opts[active.id] = S.opts[active.id]||{}); },
   rnd, rndInt, shuffle, lighten, esc, toast,
   setTip, setCounter, countdown,
+  get purpose(){ return purposeOf(S.purpose); },
+  slot(j){ return purposeOf(S.purpose).slot(j+1); },   // j 는 0부터
+
   tool(html){
     const w=document.createElement('div'); w.innerHTML=html.trim();
     const el=w.firstElementChild; $('#gameTools').appendChild(el); return el;
   },
-  finish(results){                       // results[발표순서 idx] = teamIndex
+  finish(results){                       // results[순서 idx] = teamIndex
     lastResults=results.slice();
     $('#bRes').style.display='';
     setTip('추첨 완료! 결과를 확인하세요');
@@ -289,6 +313,7 @@ function countdown(from){
 /* ── 결과 화면 ──────────────────────────────────────────────────────── */
 function showResult(){
   if(!lastResults) return;
+  const P=purposeOf(S.purpose);
   const n=lastResults.length, box=$('#resList');
   box.innerHTML='';
   box.classList.toggle('dense', n>=8 && n<=10);
@@ -302,7 +327,7 @@ function showResult(){
     row.style.boxShadow='0 8px 26px rgba(8,6,26,.25), 0 0 0 1px '+tm.color+'55';
     row.innerHTML =
       '<div class="rank" style="background:'+tm.color+';box-shadow:0 8px 26px '+tm.color+'66">'+(j+1)+'</div>'+
-      '<div class="rinfo"><div class="rord">'+(j+1)+'번째 발표</div>'+
+      '<div class="rinfo"><div class="rord">'+P.slot(j+1)+'</div>'+
       '<div class="rname">'+esc(tm.name)+'</div></div>'+
       (S.showNo?'<div class="rno">TEAM '+tm.no+'</div>':'');
     box.appendChild(row);
@@ -318,6 +343,7 @@ function rr(g,x,y,w,h,r){
 }
 function exportPng(){
   if(!lastResults) return;
+  const P=purposeOf(S.purpose);
   const n=lastResults.length, two=n>=11, cols=two?2:1;
   const per=Math.ceil(n/cols), rowH=112;
   const W=two?2280:1600, headH=S.title?300:230, H=headH+per*rowH+60;
@@ -335,7 +361,7 @@ function exportPng(){
   let y=74;
   if(S.title){ g.fillStyle='rgba(255,255,255,.8)'; g.font='700 26px '+FF; g.fillText(S.title,72,y); y+=34; }
   if(S.sub){   g.fillStyle='rgba(255,255,255,.56)'; g.font='600 20px '+FF; g.fillText(S.sub,72,y); }
-  g.fillStyle='#fff'; g.font='900 62px '+FF; g.fillText('발표 순서',72,headH-100);
+  g.fillStyle='#fff'; g.font='900 62px '+FF; g.fillText(P.heading,72,headH-100);
   g.fillStyle='rgba(255,255,255,.6)'; g.font='700 24px '+FF;
   g.fillText(gameById(S.game).name+' · '+n+'팀', 72, headH-50);
   const pad=72, colGap=40, cw=(W-pad*2-(cols-1)*colGap)/cols;
@@ -350,7 +376,7 @@ function exportPng(){
     g.fillStyle='#161233'; g.font='900 32px '+FF; g.textAlign='center';
     g.fillText(String(j+1), x+54, ry+49); g.textAlign='left';
     g.fillStyle='rgba(255,255,255,.82)'; g.font='700 19px '+FF;
-    g.fillText((j+1)+'번째 발표', x+108, ry+34);
+    g.fillText(P.slot(j+1), x+108, ry+34);
     g.fillStyle='#fff'; g.font='900 38px '+FF;
     g.fillText(tm.name, x+108, ry+68);
     if(S.showNo){
@@ -364,7 +390,7 @@ function exportPng(){
   c.toBlob(b=>{
     const a=document.createElement('a');
     a.href=URL.createObjectURL(b);
-    a.download='발표순서_'+D.getFullYear()+z(D.getMonth()+1)+z(D.getDate())+'.png';
+    a.download=P.file+'_'+D.getFullYear()+z(D.getMonth()+1)+z(D.getDate())+'.png';
     a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),3000);
     toast('결과 이미지를 저장했습니다');
   });
