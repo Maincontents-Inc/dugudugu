@@ -37,12 +37,16 @@ const FONT_PRESETS = [
    게임은 host.slot(j) / host.purpose 만 쓰면 되므로, 게임이 늘어나도
    문구를 게임마다 고칠 일이 없다. 용도를 추가하려면 여기에 한 줄 넣으면 된다. */
 const PURPOSES = {
-  order: { name:'순서 정하기', heading:'순서',      slot:n=>n+'번',        file:'순서'     },
-  talk:  { name:'발표 순서',   heading:'발표 순서', slot:n=>n+'번째 발표', file:'발표순서' },
-  rank:  { name:'순위',        heading:'순위',      slot:n=>n+'등',        file:'순위'     },
-  prize: { name:'추첨 당첨',   heading:'당첨 순서', slot:n=>n+'번째',      file:'추첨결과' }
+  order: { name:'순서 정하기', heading:'순서',      slot:n=>n+'번',        file:'순서',     dup:true  },
+  talk:  { name:'발표 순서',   heading:'발표 순서', slot:n=>n+'번째 발표', file:'발표순서', dup:false },
+  rank:  { name:'순위',        heading:'순위',      slot:n=>n+'등',        file:'순위',     dup:true  },
+  prize: { name:'추첨 당첨',   heading:'당첨 순서', slot:n=>n+'번째',      file:'추첨결과', dup:true  }
 };
 const purposeOf = k => PURPOSES[k] || PURPOSES.order;
+
+/* 팀 식별자는 알파벳(A·B·C…). 순위는 숫자(1·2·3…)라서 둘이 절대 안 헷갈린다.
+   20팀이면 A~T 까지만 쓰므로 두 글자가 될 일은 없다. */
+const tagOf = i => String.fromCharCode(65 + (i % 26)) + (i >= 26 ? Math.floor(i/26)+1 : '');
 
 const DEF = {
   title:'', sub:'', font:'', fontCustom:'', purpose:'order',
@@ -138,8 +142,8 @@ function renderTeamList(){
   for(let i=0;i<S.n;i++){
     const row=document.createElement('div'); row.className='trow';
     row.innerHTML =
-      '<div class="tdot" style="background:'+COL[i]+';box-shadow:0 4px 14px '+COL[i]+'55">'+(i+1)+'</div>'+
-      '<input class="inp" data-i="'+i+'" placeholder="'+(i+1)+'번 팀" maxlength="24" value="'+esc(S.teams[i]||'')+'">';
+      '<div class="tdot" style="background:'+COL[i]+';box-shadow:0 4px 14px '+COL[i]+'55">'+tagOf(i)+'</div>'+
+      '<input class="inp" data-i="'+i+'" placeholder="'+tagOf(i)+' 팀" maxlength="24" value="'+esc(S.teams[i]||'')+'">';
     box.appendChild(row);
   }
   box.querySelectorAll('input').forEach(inp=>{
@@ -238,10 +242,10 @@ function initSetup(){
 
 /* ── 게임 시작 ──────────────────────────────────────────────────────── */
 function startGame(){
-  for(let i=0;i<S.n;i++) if(!(S.teams[i]||'').trim()) S.teams[i]=(i+1)+'번 팀';
+  for(let i=0;i<S.n;i++) if(!(S.teams[i]||'').trim()) S.teams[i]=tagOf(i)+' 팀';
   renderTeamList(); save();
   const COL=teamColors(S.n);
-  teams=[]; for(let i=0;i<S.n;i++) teams.push({name:S.teams[i], no:i+1, color:COL[i]});
+  teams=[]; for(let i=0;i<S.n;i++) teams.push({name:S.teams[i], no:i+1, tag:tagOf(i), color:COL[i]});
   lastResults=null;
   const g=gameById(S.game);
   active=g;
@@ -327,9 +331,9 @@ function showResult(){
     row.style.boxShadow='0 8px 26px rgba(8,6,26,.25), 0 0 0 1px '+tm.color+'55';
     row.innerHTML =
       '<div class="rank" style="background:'+tm.color+';box-shadow:0 8px 26px '+tm.color+'66">'+(j+1)+'</div>'+
-      '<div class="rinfo"><div class="rord">'+P.slot(j+1)+'</div>'+
+      '<div class="rinfo">'+(P.dup?'':'<div class="rord">'+P.slot(j+1)+'</div>')+
       '<div class="rname">'+esc(tm.name)+'</div></div>'+
-      (S.showNo?'<div class="rno">TEAM '+tm.no+'</div>':'');
+      (S.showNo?'<div class="rno">'+tm.tag+'</div>':'');
     box.appendChild(row);
     setTimeout(()=>row.classList.add('in'), 110+j*(n>12?90:160));
   }
@@ -375,13 +379,18 @@ function exportPng(){
     rr(g,x+24,ry+18,60,60,16); g.fillStyle=tm.color; g.fill();
     g.fillStyle='#161233'; g.font='900 32px '+FF; g.textAlign='center';
     g.fillText(String(j+1), x+54, ry+49); g.textAlign='left';
-    g.fillStyle='rgba(255,255,255,.82)'; g.font='700 19px '+FF;
-    g.fillText(P.slot(j+1), x+108, ry+34);
-    g.fillStyle='#fff'; g.font='900 38px '+FF;
-    g.fillText(tm.name, x+108, ry+68);
+    if(P.dup){
+      g.fillStyle='#fff'; g.font='900 38px '+FF;
+      g.fillText(tm.name, x+108, ry+58);
+    } else {
+      g.fillStyle='rgba(255,255,255,.82)'; g.font='700 19px '+FF;
+      g.fillText(P.slot(j+1), x+108, ry+34);
+      g.fillStyle='#fff'; g.font='900 38px '+FF;
+      g.fillText(tm.name, x+108, ry+68);
+    }
     if(S.showNo){
-      g.fillStyle='rgba(255,255,255,.5)'; g.font='800 20px '+FF; g.textAlign='right';
-      g.fillText('TEAM '+tm.no, x+cw-28, ry+50); g.textAlign='left';
+      g.fillStyle='rgba(255,255,255,.5)'; g.font='900 26px '+FF; g.textAlign='right';
+      g.fillText(tm.tag, x+cw-28, ry+52); g.textAlign='left';
     }
   }
   const D=new Date(), z=v=>String(v).padStart(2,'0');

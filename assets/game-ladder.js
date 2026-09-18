@@ -124,7 +124,7 @@ function buildDOM(){
     el.className='tcard'+(G.mode==='one'?' click pulse':'');
     el.dataset.col=c;
     el.innerHTML='<div class="bar" style="background:linear-gradient(90deg,'+tm.color+','+tm.color+'00)"></div>'+
-      (H.settings.showNo?'<div class="no">TEAM '+tm.no+'</div>':'')+
+      (H.settings.showNo?'<div class="no">'+tm.tag+'</div>':'')+
       '<div class="nm">'+H.esc(tm.name)+'</div>';
     el.style.borderColor=tm.color+'88';
     el.style.boxShadow='0 10px 30px '+tm.color+'22';

@@ -59,7 +59,7 @@ let rankBox=null, rankRows=[], rankT=0;
 
 /* ── 기본 도형 ──────────────────────────────────────────────────────── */
 function seg(x1,y1,x2,y2,hw,rest,boost){ return {x1,y1,x2,y2,hw:hw||HW,rest:rest||REST,boost:boost||0}; }
-function circ(x,y,r,rest){ return {x,y,r,rest:rest||REST,flash:0}; }
+function circ(x,y,r,rest,boost){ return {x,y,r,rest:rest||REST,boost:boost||0,flash:0}; }
 
 /* 회전 막대 — 중심 (cx,cy) 둘레를 도는 선분 */
 function rot(cx,cy,len,hw,omega,rest,phase){
@@ -155,11 +155,13 @@ saw(o,x0,y0){
 },
 /* 벽 범퍼 — 벽에 박힌 반구가 튕겨낸다 */
 wallbump(o,x0,y0){
-  const b=box(x0,y0), n=4, span=(b.y1-b.y0)/n;
+  const b=box(x0,y0), n=4, span=(b.y1-b.y0)/n, R=30;
+  /* 원의 중심을 벽 안쪽으로 빼서 실제로 부딪히는 면적을 넓힌다.
+     같은 쪽 위아래 간격은 구슬 지름보다 좁게 둬서 그 사이에 낄 수 없게 한다. */
   for(let i=0;i<n;i++){
     const y=b.y0+span*(i+0.5);
-    o.circles.push(circ(x0+HW,          y,            32, REST_BMP));
-    o.circles.push(circ(x0+W_ROOM-HW,   y+span*0.5,   32, REST_BMP));
+    o.circles.push(circ(x0+HW+R*0.8,          y,          R, REST_BMP, 420));
+    o.circles.push(circ(x0+W_ROOM-HW-R*0.8,   y+span*0.5, R, REST_BMP, 420));
   }
 },
 /* 좁힘 게이트 — 통로가 좁아졌다 넓어진다 */
@@ -240,9 +242,26 @@ shutter(o,x0,y0){
   o.dyn.push(osc(b.x0,    b.y0+h*0.26, cxp-54, b.y0+h*0.40, 12, 0, h*0.20, p, 0));
   o.dyn.push(osc(cxp+54,  b.y0+h*0.72, b.x1,   b.y0+h*0.58, 12, 0, h*0.20, p, Math.PI));
   o.circles.push(circ(cxp, b.y0+h*0.06, 24, REST_BMP));
+},
+
+/* ── 피날레 ─────────────────────────────────────────────────────────── */
+/* 파친코 못밭 + 한쪽 킥커 — 결승선 바로 앞. 순위가 마지막으로 크게 뒤집힌다 */
+finale(o,x0,y0){
+  const b=box(x0,y0), cxp=(b.x0+b.x1)/2, h=b.y1-b.y0;
+  /* 결승선 직전 반전 구간.
+     못밭을 빽빽하게 깔면 구슬이 그 안에서 오래 튀느라 못 빠져나온다(실측 평균 49초).
+     대신 '서로 반대로 도는 쌍둥이 날개 + 큰 범퍼'로 짧고 굵게 흔든다.
+     두 날개의 회전 반경은 항상 60px 떨어뜨려 그 사이에 구슬이 끼지 않게 한다. */
+  const om=(H.rnd()<0.5?-1:1)*(2.4+H.rnd()*0.8);
+  o.dyn.push(rot(cxp-130, b.y0+h*0.42, 200, 13,  om, REST, 0));
+  o.dyn.push(rot(cxp+130, b.y0+h*0.42, 200, 13, -om, REST, Math.PI/2));
+  o.circles.push(circ(cxp,     b.y0+h*0.06, 24, REST_BMP));
+  o.circles.push(circ(b.x0+52, b.y0+h*0.88, 26, REST_BMP));
+  o.circles.push(circ(b.x1-52, b.y0+h*0.88, 26, REST_BMP));
+  o.circles.push(circ(cxp,     b.y0+h*0.92, 28, REST_BMP));
 }
 };
-const ROOM_KEYS = Object.keys(ROOMS);
+const ROOM_KEYS = Object.keys(ROOMS).filter(k=>k!=='finale');
 
 /* ============================================================================
    코스 조립
@@ -267,6 +286,7 @@ function buildCourse(n, roomCount){
     start.walls.push(seg(x0+W_ROOM,y0,x0+W_ROOM,fy));
     start.walls.push(seg(x0,fy,gOut-GATE/2,y0+START_H));
     start.walls.push(seg(x0+W_ROOM,fy,gOut+GATE/2,y0+START_H));
+    start.walls.forEach(w=>w.shell=true);
   }
   rooms.push(start);
   start.startBox={x0:x0+70,x1:x0+W_ROOM-70,y:y0+96};
@@ -281,11 +301,15 @@ function buildCourse(n, roomCount){
     x0=clamp(pick(lo,hi),lo,hi);
     gOut=clamp(pick(x0+EDGE,x0+W_ROOM-EDGE),x0+EDGE,x0+W_ROOM-EDGE);
     let type,guard=0;
-    do{ type=ROOM_KEYS[H.rndInt(ROOM_KEYS.length)]; }
-    while((type===prev||type===prev2)&&++guard<24);
+    if(i===roomCount-1){ type='finale'; }   /* 결승선 직전은 항상 피날레 */
+    else{
+      do{ type=ROOM_KEYS[H.rndInt(ROOM_KEYS.length)]; }
+      while((type===prev||type===prev2)&&++guard<24);
+    }
     prev2=prev; prev=type;
     const o={x0,y0,h:H_ROOM,type,walls:[],circles:[],dyn:[],gIn,gOut};
     shell(o,x0,y0,gIn,gOut,false);
+    o.walls.forEach(w=>w.shell=true);       /* 껍데기(덕트 벽)는 흐리게 그린다 */
     ROOMS[type](o,x0,y0);
     rooms.push(o);
     y0+=H_ROOM;
@@ -303,6 +327,7 @@ function buildCourse(n, roomCount){
     o.walls.push(seg(x0,y0,gIn-GATE/2,y0));
     o.walls.push(seg(gIn+GATE/2,y0,x0+W_ROOM,y0));
     o.walls.push(seg(x0,y0+FIN_H-20,x0+W_ROOM,y0+FIN_H-20,12));
+    o.walls.forEach(w=>w.shell=true);
     rooms.push(o);
     y0+=FIN_H;
   }
@@ -332,7 +357,7 @@ function placeMarbles(n){
     const tm=H.teams[order[i]] || {color:'#9aa', no:order[i]+1};   // 검증 실행 대비
     return {
       x:s.x, y:s.y, vx:(H.rnd()-.5)*8, vy:0, r,
-      team:order[i], color:tm.color, no:tm.no,
+      team:order[i], color:tm.color, tag:tm.tag||'?',
       fin:-1, best:s.y, stuck:0, cool:0, boostT:-9, trail:[]
     };
   });
@@ -409,7 +434,7 @@ function step(dt){
     for(let k=Math.max(0,ri-1); k<=Math.min(rooms.length-1,ri+1); k++){
       const rm=rooms[k];
       for(const s of rm.walls)   hitSeg(m,s,0,0,0,0,0);
-      for(const c of rm.circles) hitPoint(m,c.x,c.y,c.r,c.rest,0,0,c);
+      for(const c of rm.circles) hitPoint(m,c.x,c.y,c.r,c.rest,0,0,c,c.boost);
       for(const d of rm.dyn){
         if(d.kind==='rot') hitSeg(m,d.seg,0,0,d.omega,d.cx,d.cy);
         else               hitSeg(m,d.seg,d.vx,d.vy,0,0,0);
@@ -492,7 +517,8 @@ function drawWorldTo(g,rooms,top,bot){
     g.strokeStyle='rgba(255,255,255,.32)';
     for(const s of rm.walls){
       g.lineWidth=s.hw*2;
-      g.strokeStyle = s.boost ? 'rgba(255,214,120,.92)' : 'rgba(255,255,255,.32)';
+      g.strokeStyle = s.boost ? 'rgba(255,214,120,.92)'
+                   : (s.shell ? 'rgba(255,255,255,.16)' : 'rgba(255,255,255,.48)');
       g.beginPath(); g.moveTo(s.x1,s.y1); g.lineTo(s.x2,s.y2); g.stroke();
     }
     for(const c of rm.circles){
@@ -561,7 +587,7 @@ function draw(){
     g.strokeStyle='rgba(255,255,255,.85)'; g.lineWidth=1.6; g.stroke();
     g.fillStyle='#161233'; g.font='900 '+Math.round(m.r*1.05)+'px sans-serif';
     g.textAlign='center'; g.textBaseline='middle';
-    g.fillText(String(m.no), m.x, m.y+0.5);
+    g.fillText(m.tag, m.x, m.y+0.5);
     g.textAlign='left'; g.textBaseline='alphabetic';
   }
   g.restore();
@@ -600,7 +626,7 @@ function buildRankPanel(){
   rankBox.innerHTML=''; rankRows=[];
   for(let i=0;i<marbles.length;i++){
     const el=document.createElement('div'); el.className='rk';
-    el.innerHTML='<div class="p"></div><div class="dot"></div><div class="nm"></div>';
+    el.innerHTML='<div class="p"></div><div class="ball"></div><div class="nm"></div>';
     rankBox.appendChild(el); rankRows.push(el);
   }
 }
@@ -617,7 +643,8 @@ function updateRank(){
     el.classList.toggle('fin',m.fin>=0);
     el.style.borderColor = m.fin>=0 ? tm.color+'99' : 'transparent';
     el.querySelector('.p').textContent=(i+1);
-    el.querySelector('.dot').style.background=tm.color;
+    const bl=el.querySelector('.ball');
+    bl.style.background=tm.color; bl.textContent=tm.tag;
     el.querySelector('.nm').textContent=tm.name;
   });
 }
@@ -692,6 +719,7 @@ window.__marbleStress = function(n, runs, roomCount){
   const save={teams:H&&H.teams};
   if(!H) { console.warn('게임을 한 번 연 뒤에 실행하세요'); return; }
   let worst=0, sum=0, fail=0, resc=[0,0,0], types={}, stuckAt={};
+  let lead=0, invSum=0, cmp=0;
   rescueAt={};
   for(let k=0;k<runs;k++){
     const rc = roomCount || (n<=8?8:(n<=14?9:10));
@@ -699,8 +727,24 @@ window.__marbleStress = function(n, runs, roomCount){
     world.allCircles=[]; world.rooms.forEach(r=>r.circles.forEach(c=>world.allCircles.push(c)));
     world.types.forEach(t=>types[t]=(types[t]||0)+1);
     marbles=placeMarbles(n); finished=[]; simT=0; rescue=[0,0,0];
+    /* 피날레 진입 직전의 순위를 기록해 두고 최종 결과와 비교한다 */
+    const finY = world.rooms[world.rooms.length-2].y0;
+    let preOrder=null;
     let t=0;
-    while(finished.length<n && t<TIMEOUT){ step(SUB); t+=SUB; }
+    while(finished.length<n && t<TIMEOUT){
+      step(SUB); t+=SUB;
+      if(!preOrder && marbles.some(m=>m.y>finY))
+        preOrder=[...marbles].sort((a,b)=>b.y-a.y).map(m=>m.team);
+    }
+    if(preOrder){
+      const post=finished.map(m=>m.team);
+      if(preOrder[0]!==post[0]) lead++;
+      let inv=0;
+      for(let i=0;i<n;i++) for(let j=i+1;j<n;j++)
+        if(post.indexOf(preOrder[i])>post.indexOf(preOrder[j])) inv++;
+      invSum += inv/(n*(n-1)/2);
+      cmp++;
+    }
     if(finished.length<n){
       fail++;
       for(const m of marbles) if(m.fin<0){
@@ -713,7 +757,10 @@ window.__marbleStress = function(n, runs, roomCount){
   }
   const out={n,runs,미완주:fail,평균초:+(sum/runs).toFixed(1),최장초:+worst.toFixed(1),
              구조1_흔들기:resc[0],구조2_게이트로밀기:resc[1],구조3_옮기기:resc[2],
-             막힌곳:stuckAt,구조발동위치:rescueAt,방종류:types};
+             막힌곳:stuckAt,구조발동위치:rescueAt,
+             피날레_1등뒤바뀜: cmp?+(lead/cmp*100).toFixed(0)+'%':'-',
+             피날레_순위뒤섞임: cmp?+(invSum/cmp*100).toFixed(0)+'%':'-',
+             방종류:types};
   if(cv) reset();          // 검증이 끝나면 실제 게임 상태를 되돌려 놓는다
   else { world=null; marbles=[]; finished=[]; }
   return out;
