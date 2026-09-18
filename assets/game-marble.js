@@ -55,7 +55,7 @@ const TIMEOUT  = 150;      // 안전 종료(초)
 
 let H=null, cv=null, cx=null, raf=0, lastT=0, acc=0;
 let world=null, marbles=[], finished=[], running=false, elapsed=0, simT=0;
-let camX=0, camY=0, speed=1, elStart=null, elSpeed=null, elAgain=null;
+let camX=0, camY=0, speed=1, rev=false, elStart=null, elSpeed=null, elAgain=null;
 let rankBox=null, rankRows=[], rankT=0;
 
 /* ── 기본 도형 ──────────────────────────────────────────────────────── */
@@ -708,6 +708,7 @@ function updateRank(){
     if(b.fin>=0) return 1;
     return b.y-a.y;
   });
+  if(rev) list.reverse();
   list.forEach((m,i)=>{
     const el=rankRows[i]; if(!el) return;
     const tm=H.teams[m.team];
@@ -759,7 +760,8 @@ function endRace(){
   H.setCounter(finished.length, marbles.length);
   updateRank();
   elStart.disabled=true; elAgain.style.display='';
-  H.finish(finished.map(m=>m.team));
+  const res=finished.map(m=>m.team);
+  H.finish(rev ? res.reverse() : res);
 }
 function reset(){
   const rc = H.n<=8 ? 7 : 8;
@@ -929,25 +931,40 @@ Core.registerGame({
       '<button data-v="1">보통<span class="sub">1배속</span></button>'+
       '<button data-v="2">빠르게<span class="sub">2배속</span></button>'+
       '</div></div>'+
+      '<div class="field"><label>순위를 매기는 방향</label>'+
+      '<div class="seg" id="mbRev">'+
+      '<button data-v="0">먼저 도착<span class="sub">1등부터</span></button>'+
+      '<button data-v="1">나중 도착<span class="sub">꼴찌가 1등</span></button>'+
+      '</div></div>'+
       '<div class="hint">경주 중에도 화면 위 버튼으로 속도를 바꿀 수 있습니다. '+
-      '코스는 매번 새로 만들어지며, 출발 위치는 암호학적 난수로 균등하게 섞여 결과가 공정합니다.</div>';
+      '코스는 매번 새로 만들어지며, 출발 위치는 암호학적 난수로 균등하게 섞여 결과가 공정합니다. '+
+      '<b>나중 도착</b>을 고르면 꼴찌로 들어온 팀이 1등이 됩니다 — 경주 중 순위판도 뒤집혀 표시됩니다.</div>';
   },
   bindOptions(root,o,save){
     if(!o.speed) o.speed=1;
-    const paint=()=>root.querySelectorAll('#mbSpeed button')
-      .forEach(b=>b.classList.toggle('on',+b.dataset.v===o.speed));
+    if(o.rev===undefined) o.rev=0;
+    const paint=()=>{
+      root.querySelectorAll('#mbSpeed button')
+        .forEach(b=>b.classList.toggle('on',+b.dataset.v===o.speed));
+      root.querySelectorAll('#mbRev button')
+        .forEach(b=>b.classList.toggle('on',+b.dataset.v===o.rev));
+    };
     root.querySelectorAll('#mbSpeed button').forEach(b=>
       b.addEventListener('click',()=>{ o.speed=+b.dataset.v; paint(); save(); }));
+    root.querySelectorAll('#mbRev button').forEach(b=>
+      b.addEventListener('click',()=>{ o.rev=+b.dataset.v; paint(); save(); }));
     paint();
   },
 
   start(h){
     H=h;
     speed = H.opts().speed || 1;
+    rev   = !!H.opts().rev;
     H.stage.innerHTML =
       '<div class="marble-wrap">'+
         '<div class="marble-track"><canvas id="mbCv"></canvas></div>'+
-        '<div class="rank-panel"><h3>순위</h3><div class="rank-list" id="mbRank"></div></div>'+
+        '<div class="rank-panel"><h3>'+(rev?'순위 <span class="revtag">늦을수록 앞</span>':'순위')+'</h3>'+
+        '<div class="rank-list" id="mbRank"></div></div>'+
       '</div>';
     cv=document.getElementById('mbCv'); cx=cv.getContext('2d');
     rankBox=document.getElementById('mbRank');
