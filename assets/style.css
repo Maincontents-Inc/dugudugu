@@ -406,8 +406,11 @@ body.noeffect .pulse{animation:none!important}
 
   /* 결과 */
   .res-head h1{font-size:26px}
-  .res-list{max-width:100%;justify-content:flex-start;overflow-y:auto;gap:8px}
-  .res-list .rrow{flex:0 0 auto;max-height:none;min-height:58px;padding:10px 14px;gap:12px}
+  /* 팀이 적으면 가운데로 모으고(위아래 빈 공간 제거), 많으면 위에서부터 쌓고 스크롤.
+     safe 를 붙여야 내용이 화면보다 길 때 윗부분이 잘리지 않는다. */
+  .res-list{max-width:100%;justify-content:center;justify-content:safe center;
+    overflow-y:auto;gap:8px}
+  .res-list .rrow{flex:0 1 auto;max-height:104px;min-height:58px;padding:10px 14px;gap:12px}
   .res-list.cols2{display:flex;flex-direction:column;grid-template-rows:none!important;max-width:100%}
   .res-list.cols2 .rrow,.res-list.dense .rrow{min-height:58px}
   .rrow .rank{width:42px;height:42px;font-size:19px;border-radius:11px}
