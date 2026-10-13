@@ -169,9 +169,15 @@ function renderGames(){
     b.dataset.id=g.id;
     b.innerHTML='<div class="chk">✓</div><div class="gi">'+g.icon+'</div>'+
                 '<div class="gn">'+esc(g.name)+'</div><div class="gd">'+esc(g.desc)+'</div>';
-    b.addEventListener('click',()=>{ S.game=g.id; save(); renderGames(); renderGameOpts(); });
+    b.addEventListener('click',()=>{ S.game=g.id; save(); renderGames(); renderGameOpts(); applyGameLayout(); });
     box.appendChild(b);
   });
+}
+/* 게임에 따라 설정 화면 구성이 달라진다.
+   행운 뽑기처럼 '팀'이라는 개념이 없는 게임은 팀 입력과 용도 선택을 감춘다. */
+function applyGameLayout(){
+  const g=gameById(S.game);
+  document.body.classList.toggle('no-teams', !!g.noTeams);
 }
 function renderGameOpts(){
   const box=$('#gameOpts'); box.innerHTML='';
@@ -197,7 +203,8 @@ function syncSetup(){
   $('#tgFx').classList.toggle('on',S.useFx);
   $('#tgNo').classList.toggle('on',S.showNo);
   document.body.classList.toggle('noeffect',!S.useFx);
-  renderTeamList(); renderGames(); renderGameOpts(); applyFont(); applyBrand(); applyPurpose();
+  renderTeamList(); renderGames(); renderGameOpts(); applyGameLayout();
+  applyFont(); applyBrand(); applyPurpose();
 }
 function initSetup(){
   const ps=$('#fPurpose');
@@ -215,11 +222,12 @@ function initSetup(){
   $('#cMinus').addEventListener('click',()=>{ if(S.n>2){ S.n--; syncSetup(); save(); } });
   $('#cPlus').addEventListener('click',()=>{ if(S.n<MAX_TEAMS){ S.n++; if(!S.teams[S.n-1])S.teams[S.n-1]=''; syncSetup(); save(); } });
   $('#tgCount').addEventListener('click',()=>{ S.useCount=!S.useCount; syncSetup(); save(); });
-  $('#tgFx').addEventListener('click',()=>{ S.useFx=!S.useFx; syncSetup(); save(); });
+  $('#tgFx').addEventListener('click',()=>{ S.useFx=!S.useFx; syncSetup(); save(); bgKick(); });
   $('#tgNo').addEventListener('click',()=>{ S.showNo=!S.showNo; syncSetup(); save(); });
   $('#bClear').addEventListener('click',()=>{ S.teams=new Array(S.n).fill(''); syncSetup(); save(); });
   $('#bReset').addEventListener('click',()=>{
-    S=JSON.parse(JSON.stringify(DEF)); syncSetup(); save(); toast('설정을 초기화했습니다');
+    S=JSON.parse(JSON.stringify(DEF)); syncSetup(); save();
+    toast('제목·팀 이름·게임 설정을 모두 비웠습니다');
   });
   /* 여러 줄 붙여넣기 */
   $('#bPaste').addEventListener('click',()=>{
@@ -242,10 +250,20 @@ function initSetup(){
 
 /* ── 게임 시작 ──────────────────────────────────────────────────────── */
 function startGame(){
-  for(let i=0;i<S.n;i++) if(!(S.teams[i]||'').trim()) S.teams[i]=tagOf(i)+' 팀';
-  renderTeamList(); save();
-  const COL=teamColors(S.n);
-  teams=[]; for(let i=0;i<S.n;i++) teams.push({name:S.teams[i], no:i+1, tag:tagOf(i), color:COL[i]});
+  const gg=gameById(S.game);
+  if(gg.noTeams){
+    teams=[];                            // 팀 개념이 없는 게임 (행운 뽑기 등)
+  }else{
+    /* 비어 있는 칸은 'A 팀'처럼 자동으로 채우되, 저장된 입력값은 건드리지 않는다.
+       예전에는 이걸 그대로 저장해서, 한 번 돌리고 나면 입력칸이 영영
+       'A 팀 · B 팀…' 으로 채워진 채 남았다. */
+    const COL=teamColors(S.n);
+    teams=[];
+    for(let i=0;i<S.n;i++){
+      const nm=(S.teams[i]||'').trim() || (tagOf(i)+' 팀');
+      teams.push({name:nm, no:i+1, tag:tagOf(i), color:COL[i]});
+    }
+  }
   lastResults=null;
   const g=gameById(S.game);
   active=g;
@@ -253,7 +271,7 @@ function startGame(){
   $('#gameTools').innerHTML='';
   $('#bRes').style.display='none';
   $('#stage').innerHTML='';
-  setCounter(0,S.n); setTip('');
+  setCounter(0,gg.noTeams?0:S.n); setTip('');
   showScreen('play');
   requestAnimationFrame(()=>g.start(host));
 }
@@ -267,6 +285,8 @@ const host = {
   opts(){ return (S.opts[active.id] = S.opts[active.id]||{}); },
   rnd, rndInt, shuffle, lighten, esc, toast,
   setTip, setCounter, countdown,
+  save,                                  // 게임이 진행 중 자기 설정을 저장할 때
+  get fx(){ return !!S.useFx; },
   get purpose(){ return purposeOf(S.purpose); },
   slot(j){ return purposeOf(S.purpose).slot(j+1); },   // j 는 0부터
 
@@ -422,7 +442,7 @@ function toggleFs(){
 }
 
 /* ── 배경 로우폴리 ──────────────────────────────────────────────────── */
-let bg,bgx,pts=[],GC=0,GR=0,bgW=0,bgH=0,bgLast=0,DPR=1;
+let bg,bgx,pts=[],GC=0,GR=0,bgW=0,bgH=0,bgLast=0,DPR=1,bgRaf=0;
 function bgInit(){
   DPR=Math.min(window.devicePixelRatio||1,2);
   bgW=bg.width=Math.round(innerWidth*DPR); bgH=bg.height=Math.round(innerHeight*DPR);
@@ -433,8 +453,12 @@ function bgInit(){
     pts.push({bx:c*cell,by:r*cell,jx:(Math.random()-.5)*cell*.55,jy:(Math.random()-.5)*cell*.55,
               ph:Math.random()*Math.PI*2,am:8+Math.random()*22});
 }
+/* 배경 로우폴리는 화면 전체를 매 프레임 다시 그린다. 사양이 낮은 태블릿에서는
+   이게 제일 무거우므로, '파티클 효과'를 끄면 한 장만 그리고 루프를 멈춘다. */
+function bgKick(){ if(!bgRaf) bgRaf=requestAnimationFrame(bgDraw); }
 function bgDraw(now){
-  if(now-bgLast<42){ requestAnimationFrame(bgDraw); return; }
+  bgRaf=0;
+  if(S.useFx && now-bgLast<42){ bgKick(); return; }
   bgLast=now; const t=now/1000;
   bgx.clearRect(0,0,bgW,bgH);
   const P=(r,c)=>{ const p=pts[r*(GC+1)+c];
@@ -454,14 +478,14 @@ function bgDraw(now){
     if(r<GR){ const q=P(r+1,c); bgx.moveTo(p.x,p.y); bgx.lineTo(q.x,q.y); }
   }
   bgx.stroke();
-  requestAnimationFrame(bgDraw);
+  if(S.useFx) bgKick();
 }
 
 /* ── 부팅 ───────────────────────────────────────────────────────────── */
 function boot(){
   bg=$('#bgPoly'); bgx=bg.getContext('2d');
   load(); initSetup(); syncSetup();
-  bgInit(); requestAnimationFrame(bgDraw);
+  bgInit(); bgKick();
 
   $('#bFs').addEventListener('click',toggleFs);
   $('#bBack').addEventListener('click',leaveGame);
@@ -480,7 +504,7 @@ function boot(){
   let rz=0;
   addEventListener('resize',()=>{
     clearTimeout(rz);
-    rz=setTimeout(()=>{ bgInit(); if(active && active.onResize) active.onResize(); },140);
+    rz=setTimeout(()=>{ bgInit(); bgKick(); if(active && active.onResize) active.onResize(); },140);
   });
   if(matchMedia('(prefers-reduced-motion: reduce)').matches){ S.useFx=false; S.useCount=false; syncSetup(); }
 }

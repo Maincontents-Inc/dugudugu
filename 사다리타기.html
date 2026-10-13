@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>사다리타기 · 두구두구</title>
-<meta name="description" content="두구두구 — 팀 순서를 공정하게 정하는 랜덤 추첨 미니게임. 사다리타기, 마블 레이스.">
+<meta name="description" content="두구두구 — 공정한 랜덤 추첨 미니게임. 사다리타기, 마블 레이스, 행운 뽑기.">
 <style>
 /* ============================================================================
    발표 순서 미니게임 — 공통 스타일
@@ -456,6 +456,138 @@ body.noeffect .pulse{animation:none!important}
   background:rgba(255,190,120,.22);border:1px solid rgba(255,190,120,.5);
   font-size:11px;font-weight:800;letter-spacing:0;color:#ffd9ae;vertical-align:middle}
 
+/* ════════════════════════════════════════════════════════════════════
+   행운 뽑기
+   태블릿 세로 기준으로 만들되 가로에서도 가운데 정렬로 그대로 쓸 수 있게
+   폭만 제한한다. 애니메이션은 CSS transform 만 쓴다 (태블릿 부담 최소화).
+   ═════════════════════════════════════════════════════════════════ */
+body.no-teams #teamCard,
+body.no-teams #fPurposeWrap{display:none}
+body.no-teams .grid{grid-template-columns:minmax(0,1fr)}
+
+.btn.danger{background:rgba(231,76,89,.22);border-color:rgba(231,76,89,.6);color:#ffd9dc}
+.btn.danger:hover{background:rgba(231,76,89,.34)}
+
+.draw-wrap{flex:1 1 auto;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:14px;min-height:0;padding:4px 0}
+.dw-top{display:flex;align-items:baseline;gap:10px;flex:0 0 auto}
+.dw-left{font-size:13px;font-weight:800;color:var(--ink-3);letter-spacing:.02em}
+.dw-num b{font-size:30px;font-weight:900;color:var(--c-mint);font-variant-numeric:tabular-nums}
+.dw-num span{font-size:14px;font-weight:800;color:var(--ink-3);margin-left:4px}
+
+.machine{flex:0 1 auto;display:flex;flex-direction:column;align-items:center;
+  width:min(400px,80vw);transform-origin:50% 60%}
+.machine.shake{animation:mcShake .6s cubic-bezier(.36,.07,.19,.97)}
+@keyframes mcShake{
+  0%,100%{transform:translateX(0) rotate(0)}
+  12%{transform:translateX(-7px) rotate(-1.4deg)}
+  28%{transform:translateX(6px) rotate(1.2deg)}
+  46%{transform:translateX(-5px) rotate(-1deg)}
+  64%{transform:translateX(4px) rotate(.7deg)}
+  82%{transform:translateX(-2px) rotate(-.3deg)}
+}
+.mc-dome{position:relative;width:100%;aspect-ratio:1;border-radius:50%;
+  background:radial-gradient(120% 110% at 32% 24%, rgba(255,255,255,.34) 0%, rgba(255,255,255,.1) 42%, rgba(255,255,255,.06) 100%);
+  border:2px solid rgba(255,255,255,.4);overflow:hidden;
+  box-shadow:inset 0 -18px 40px rgba(20,16,48,.3), 0 18px 44px rgba(8,6,26,.3)}
+.mc-gloss{position:absolute;left:14%;top:10%;width:34%;height:26%;border-radius:50%;
+  background:radial-gradient(circle at 40% 40%, rgba(255,255,255,.62), rgba(255,255,255,0) 70%)}
+.cap{position:absolute;width:15%;height:10.5%;border-radius:999px;transform:translate(-50%,-50%);
+  border:1px solid rgba(255,255,255,.5)}
+.mc-neck{width:46%;height:16px;background:linear-gradient(180deg,#7fd36a,#4faa3c);
+  border-radius:4px 4px 0 0;margin-top:-6px;box-shadow:0 6px 16px rgba(8,6,26,.28)}
+.mc-body{width:84%;border-radius:16px;padding:18px 16px 14px;
+  background:linear-gradient(180deg,#8fdd5e,#5fb43a);
+  box-shadow:0 14px 34px rgba(8,6,26,.34), inset 0 -6px 0 rgba(0,0,0,.14);
+  display:flex;flex-direction:column;align-items:center;gap:12px}
+.mc-knob{width:min(150px,54%);aspect-ratio:1;border-radius:50%;cursor:pointer;
+  background:linear-gradient(180deg,#fdfdfd,#d9dde6);border:5px solid #3fa02b;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  box-shadow:0 8px 0 #b9bfcb, 0 14px 26px rgba(8,6,26,.34);
+  transition:transform .12s ease, box-shadow .12s ease}
+.mc-knob b{font-size:21px;font-weight:900;color:#1d1a3c;letter-spacing:-.02em}
+.mc-knob span{font-size:11px;font-weight:900;color:#5b6274;letter-spacing:.14em}
+.mc-knob:active{transform:translateY(6px);box-shadow:0 2px 0 #b9bfcb, 0 8px 16px rgba(8,6,26,.3)}
+.mc-knob:disabled{opacity:.5;cursor:default;transform:none}
+.mc-slot{width:62%;height:13px;border-radius:4px;background:rgba(20,16,48,.42);
+  box-shadow:inset 0 2px 5px rgba(0,0,0,.4)}
+.dw-hint{flex:0 0 auto;font-size:12.5px;font-weight:700;color:var(--ink-3)}
+
+/* ── 당첨 티켓 ───────────────────────────────────────────────────────── */
+.ticket-back{position:fixed;inset:0;z-index:72;display:none;align-items:center;justify-content:center;
+  padding:20px;background:rgba(10,8,30,.72);backdrop-filter:blur(7px);overflow:hidden}
+.ticket-back.on{display:flex}
+.ticket{position:relative;width:min(340px,100%);border-radius:20px;padding:26px 22px 20px;
+  background:#fbfbfe;border:2px dashed #cdd2e2;text-align:center;
+  box-shadow:0 26px 60px rgba(6,4,22,.5);animation:tkIn .36s cubic-bezier(.16,1,.3,1)}
+@keyframes tkIn{from{opacity:0;transform:translateY(18px) scale(.94)}to{opacity:1;transform:none}}
+.ticket::before,.ticket::after{content:'';position:absolute;top:50%;width:22px;height:22px;
+  border-radius:50%;background:rgba(10,8,30,.92);transform:translateY(-50%)}
+.ticket::before{left:-12px} .ticket::after{right:-12px}
+.tk-kicker{display:inline-block;padding:4px 11px;border-radius:999px;background:#eceef6;
+  font-size:10.5px;font-weight:900;letter-spacing:.16em;color:#6a7187}
+.tk-badge{width:112px;height:112px;border-radius:50%;margin:16px auto 12px;
+  display:flex;align-items:baseline;justify-content:center;gap:1px;color:#1d1a3c;
+  border:3px solid rgba(255,255,255,.75)}
+.tk-badge b{font-size:46px;font-weight:900;line-height:1}
+.tk-badge span{font-size:17px;font-weight:900}
+.tk-msg{font-size:20px;font-weight:900;color:#1d1a3c}
+.tk-sub{font-size:12.5px;font-weight:700;color:#7a8198;margin:6px 0 16px}
+.ticket .btn{width:100%;background:#1d1a3c;border-color:#1d1a3c;color:#fff}
+.ticket .btn:hover{background:#2b2757}
+.cfti{position:absolute;top:-14px;width:8px;height:14px;border-radius:2px;pointer-events:none;
+  animation:cftiFall 1.9s linear forwards}
+@keyframes cftiFall{to{transform:translateY(105vh) rotate(680deg);opacity:.15}}
+body.noeffect .cfti{display:none}
+
+/* ── 관리자 패널 ─────────────────────────────────────────────────────── */
+.adm-back{position:fixed;inset:0;z-index:74;display:none;align-items:center;justify-content:center;
+  padding:18px;background:rgba(10,8,30,.7);backdrop-filter:blur(7px)}
+.adm-back.on{display:flex}
+.adm{width:min(420px,100%);max-height:86vh;overflow:auto;border-radius:18px;padding:20px 18px;
+  background:rgba(30,26,68,.97);border:1.5px solid var(--line);box-shadow:0 26px 60px rgba(6,4,22,.5)}
+.adm h3{font-size:17px;font-weight:900;margin-bottom:14px}
+.adm-row{display:flex;align-items:center;gap:11px;padding:10px 11px;border-radius:12px;
+  background:rgba(255,255,255,.07);margin-bottom:7px}
+.adm-tier{flex:0 0 auto;min-width:40px;text-align:center;padding:5px 0;border-radius:8px;
+  font-size:12px;font-weight:900;color:#1d1a3c}
+.adm-info{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px}
+.adm-info b{font-size:14px;font-weight:900}
+.adm-info span{font-size:11.5px;font-weight:700;color:var(--ink-3)}
+.adm-pct{flex:0 0 auto;text-align:right;display:flex;flex-direction:column;gap:1px}
+.adm-pct b{font-size:16px;font-weight:900;color:var(--c-mint);font-variant-numeric:tabular-nums}
+.adm-pct span{font-size:10px;font-weight:700;color:var(--ink-3)}
+.adm-total{margin-top:11px;padding:11px;border-radius:12px;text-align:center;
+  background:rgba(168,237,245,.13);border:1px solid rgba(168,237,245,.3);font-size:13px;font-weight:800}
+.adm-total b{font-size:19px;color:var(--c-mint)}
+.adm-note{margin-top:10px;font-size:11.5px;line-height:1.65;color:var(--ink-3)}
+.adm-foot{display:flex;gap:9px;justify-content:flex-end;margin-top:14px}
+
+/* ── 설정 화면의 뽑기 설정 ───────────────────────────────────────────── */
+.dcfg-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:12px;
+  background:rgba(255,255,255,.06);margin-bottom:7px}
+.dcfg-tier{flex:0 0 auto;min-width:42px;text-align:center;padding:6px 0;border-radius:8px;
+  font-size:12px;font-weight:900;color:#1d1a3c}
+.dcfg-f{flex:1 1 0;display:flex;align-items:center;gap:7px;min-width:0}
+.dcfg-f>span{flex:0 0 auto;font-size:11.5px;font-weight:800;color:var(--ink-3)}
+.dcfg-f .inp.num{flex:1 1 0;min-width:0;padding:8px 9px;text-align:right;
+  font-weight:900;font-variant-numeric:tabular-nums}
+.dcfg-sum{margin-top:4px;padding:10px;border-radius:12px;text-align:center;font-size:13px;
+  font-weight:800;background:rgba(168,237,245,.12);border:1px solid rgba(168,237,245,.28)}
+.dcfg-sum b{font-size:18px;color:var(--c-mint)}
+
+@media (max-width:820px){
+  .machine{width:min(330px,80vw)}
+  .dw-num b{font-size:26px}
+  .dcfg-row{flex-wrap:wrap}
+  .dcfg-f{flex:1 1 44%}
+}
+@media (max-height:720px){
+  .machine{width:min(240px,52vh)}
+  .mc-knob{width:min(118px,52%)}
+  .mc-knob b{font-size:18px}
+}
+
 </style>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥁</text></svg>">
 </head>
@@ -488,7 +620,7 @@ body.noeffect .pulse{animation:none!important}
           <label>부제</label>
           <input class="inp" id="fSub" placeholder="비워두면 표시되지 않습니다" maxlength="80">
         </div>
-        <div class="field">
+        <div class="field" id="fPurposeWrap">
           <label>용도</label>
           <select class="inp" id="fPurpose"></select>
         </div>
@@ -517,7 +649,7 @@ body.noeffect .pulse{animation:none!important}
     </div>
 
     <!-- 우: 팀 -->
-    <div class="card">
+    <div class="card" id="teamCard">
       <h2>팀 <span class="opt">필수</span></h2>
       <div class="field">
         <label>팀 수</label>
@@ -548,10 +680,10 @@ body.noeffect .pulse{animation:none!important}
   </div>
 
   <div class="setup-actions">
-    <button class="btn ghost" id="bReset">초기화</button>
+    <button class="btn ghost" id="bReset">전부 비우기</button>
     <button class="btn primary big" id="bStart">시작하기</button>
   </div>
-  <div class="foot-note">결과는 이미지로 저장할 수 있습니다</div>
+  <div class="foot-note">입력한 내용은 이 브라우저에 저장돼 다음에 열어도 그대로 남습니다 · <b>전부 비우기</b>로 지울 수 있습니다</div>
 </section>
 
 <!-- ══════════════════════════════════════════════════════════════════
@@ -781,9 +913,15 @@ function renderGames(){
     b.dataset.id=g.id;
     b.innerHTML='<div class="chk">✓</div><div class="gi">'+g.icon+'</div>'+
                 '<div class="gn">'+esc(g.name)+'</div><div class="gd">'+esc(g.desc)+'</div>';
-    b.addEventListener('click',()=>{ S.game=g.id; save(); renderGames(); renderGameOpts(); });
+    b.addEventListener('click',()=>{ S.game=g.id; save(); renderGames(); renderGameOpts(); applyGameLayout(); });
     box.appendChild(b);
   });
+}
+/* 게임에 따라 설정 화면 구성이 달라진다.
+   행운 뽑기처럼 '팀'이라는 개념이 없는 게임은 팀 입력과 용도 선택을 감춘다. */
+function applyGameLayout(){
+  const g=gameById(S.game);
+  document.body.classList.toggle('no-teams', !!g.noTeams);
 }
 function renderGameOpts(){
   const box=$('#gameOpts'); box.innerHTML='';
@@ -809,7 +947,8 @@ function syncSetup(){
   $('#tgFx').classList.toggle('on',S.useFx);
   $('#tgNo').classList.toggle('on',S.showNo);
   document.body.classList.toggle('noeffect',!S.useFx);
-  renderTeamList(); renderGames(); renderGameOpts(); applyFont(); applyBrand(); applyPurpose();
+  renderTeamList(); renderGames(); renderGameOpts(); applyGameLayout();
+  applyFont(); applyBrand(); applyPurpose();
 }
 function initSetup(){
   const ps=$('#fPurpose');
@@ -827,11 +966,12 @@ function initSetup(){
   $('#cMinus').addEventListener('click',()=>{ if(S.n>2){ S.n--; syncSetup(); save(); } });
   $('#cPlus').addEventListener('click',()=>{ if(S.n<MAX_TEAMS){ S.n++; if(!S.teams[S.n-1])S.teams[S.n-1]=''; syncSetup(); save(); } });
   $('#tgCount').addEventListener('click',()=>{ S.useCount=!S.useCount; syncSetup(); save(); });
-  $('#tgFx').addEventListener('click',()=>{ S.useFx=!S.useFx; syncSetup(); save(); });
+  $('#tgFx').addEventListener('click',()=>{ S.useFx=!S.useFx; syncSetup(); save(); bgKick(); });
   $('#tgNo').addEventListener('click',()=>{ S.showNo=!S.showNo; syncSetup(); save(); });
   $('#bClear').addEventListener('click',()=>{ S.teams=new Array(S.n).fill(''); syncSetup(); save(); });
   $('#bReset').addEventListener('click',()=>{
-    S=JSON.parse(JSON.stringify(DEF)); syncSetup(); save(); toast('설정을 초기화했습니다');
+    S=JSON.parse(JSON.stringify(DEF)); syncSetup(); save();
+    toast('제목·팀 이름·게임 설정을 모두 비웠습니다');
   });
   /* 여러 줄 붙여넣기 */
   $('#bPaste').addEventListener('click',()=>{
@@ -854,10 +994,20 @@ function initSetup(){
 
 /* ── 게임 시작 ──────────────────────────────────────────────────────── */
 function startGame(){
-  for(let i=0;i<S.n;i++) if(!(S.teams[i]||'').trim()) S.teams[i]=tagOf(i)+' 팀';
-  renderTeamList(); save();
-  const COL=teamColors(S.n);
-  teams=[]; for(let i=0;i<S.n;i++) teams.push({name:S.teams[i], no:i+1, tag:tagOf(i), color:COL[i]});
+  const gg=gameById(S.game);
+  if(gg.noTeams){
+    teams=[];                            // 팀 개념이 없는 게임 (행운 뽑기 등)
+  }else{
+    /* 비어 있는 칸은 'A 팀'처럼 자동으로 채우되, 저장된 입력값은 건드리지 않는다.
+       예전에는 이걸 그대로 저장해서, 한 번 돌리고 나면 입력칸이 영영
+       'A 팀 · B 팀…' 으로 채워진 채 남았다. */
+    const COL=teamColors(S.n);
+    teams=[];
+    for(let i=0;i<S.n;i++){
+      const nm=(S.teams[i]||'').trim() || (tagOf(i)+' 팀');
+      teams.push({name:nm, no:i+1, tag:tagOf(i), color:COL[i]});
+    }
+  }
   lastResults=null;
   const g=gameById(S.game);
   active=g;
@@ -865,7 +1015,7 @@ function startGame(){
   $('#gameTools').innerHTML='';
   $('#bRes').style.display='none';
   $('#stage').innerHTML='';
-  setCounter(0,S.n); setTip('');
+  setCounter(0,gg.noTeams?0:S.n); setTip('');
   showScreen('play');
   requestAnimationFrame(()=>g.start(host));
 }
@@ -879,6 +1029,8 @@ const host = {
   opts(){ return (S.opts[active.id] = S.opts[active.id]||{}); },
   rnd, rndInt, shuffle, lighten, esc, toast,
   setTip, setCounter, countdown,
+  save,                                  // 게임이 진행 중 자기 설정을 저장할 때
+  get fx(){ return !!S.useFx; },
   get purpose(){ return purposeOf(S.purpose); },
   slot(j){ return purposeOf(S.purpose).slot(j+1); },   // j 는 0부터
 
@@ -1034,7 +1186,7 @@ function toggleFs(){
 }
 
 /* ── 배경 로우폴리 ──────────────────────────────────────────────────── */
-let bg,bgx,pts=[],GC=0,GR=0,bgW=0,bgH=0,bgLast=0,DPR=1;
+let bg,bgx,pts=[],GC=0,GR=0,bgW=0,bgH=0,bgLast=0,DPR=1,bgRaf=0;
 function bgInit(){
   DPR=Math.min(window.devicePixelRatio||1,2);
   bgW=bg.width=Math.round(innerWidth*DPR); bgH=bg.height=Math.round(innerHeight*DPR);
@@ -1045,8 +1197,12 @@ function bgInit(){
     pts.push({bx:c*cell,by:r*cell,jx:(Math.random()-.5)*cell*.55,jy:(Math.random()-.5)*cell*.55,
               ph:Math.random()*Math.PI*2,am:8+Math.random()*22});
 }
+/* 배경 로우폴리는 화면 전체를 매 프레임 다시 그린다. 사양이 낮은 태블릿에서는
+   이게 제일 무거우므로, '파티클 효과'를 끄면 한 장만 그리고 루프를 멈춘다. */
+function bgKick(){ if(!bgRaf) bgRaf=requestAnimationFrame(bgDraw); }
 function bgDraw(now){
-  if(now-bgLast<42){ requestAnimationFrame(bgDraw); return; }
+  bgRaf=0;
+  if(S.useFx && now-bgLast<42){ bgKick(); return; }
   bgLast=now; const t=now/1000;
   bgx.clearRect(0,0,bgW,bgH);
   const P=(r,c)=>{ const p=pts[r*(GC+1)+c];
@@ -1066,14 +1222,14 @@ function bgDraw(now){
     if(r<GR){ const q=P(r+1,c); bgx.moveTo(p.x,p.y); bgx.lineTo(q.x,q.y); }
   }
   bgx.stroke();
-  requestAnimationFrame(bgDraw);
+  if(S.useFx) bgKick();
 }
 
 /* ── 부팅 ───────────────────────────────────────────────────────────── */
 function boot(){
   bg=$('#bgPoly'); bgx=bg.getContext('2d');
   load(); initSetup(); syncSetup();
-  bgInit(); requestAnimationFrame(bgDraw);
+  bgInit(); bgKick();
 
   $('#bFs').addEventListener('click',toggleFs);
   $('#bBack').addEventListener('click',leaveGame);
@@ -1092,7 +1248,7 @@ function boot(){
   let rz=0;
   addEventListener('resize',()=>{
     clearTimeout(rz);
-    rz=setTimeout(()=>{ bgInit(); if(active && active.onResize) active.onResize(); },140);
+    rz=setTimeout(()=>{ bgInit(); bgKick(); if(active && active.onResize) active.onResize(); },140);
   });
   if(matchMedia('(prefers-reduced-motion: reduce)').matches){ S.useFx=false; S.useCount=false; syncSetup(); }
 }

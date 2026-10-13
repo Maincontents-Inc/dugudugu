@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>두구두구</title>
-<meta name="description" content="두구두구 — 팀 순서를 공정하게 정하는 랜덤 추첨 미니게임. 사다리타기, 마블 레이스.">
+<meta name="description" content="두구두구 — 공정한 랜덤 추첨 미니게임. 사다리타기, 마블 레이스, 행운 뽑기.">
 <link rel="stylesheet" href="assets/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥁</text></svg>">
 </head>
@@ -37,7 +37,7 @@
           <label>부제</label>
           <input class="inp" id="fSub" placeholder="비워두면 표시되지 않습니다" maxlength="80">
         </div>
-        <div class="field">
+        <div class="field" id="fPurposeWrap">
           <label>용도</label>
           <select class="inp" id="fPurpose"></select>
         </div>
@@ -66,7 +66,7 @@
     </div>
 
     <!-- 우: 팀 -->
-    <div class="card">
+    <div class="card" id="teamCard">
       <h2>팀 <span class="opt">필수</span></h2>
       <div class="field">
         <label>팀 수</label>
@@ -97,10 +97,10 @@
   </div>
 
   <div class="setup-actions">
-    <button class="btn ghost" id="bReset">초기화</button>
+    <button class="btn ghost" id="bReset">전부 비우기</button>
     <button class="btn primary big" id="bStart">시작하기</button>
   </div>
-  <div class="foot-note">결과는 이미지로 저장할 수 있습니다</div>
+  <div class="foot-note">입력한 내용은 이 브라우저에 저장돼 다음에 열어도 그대로 남습니다 · <b>전부 비우기</b>로 지울 수 있습니다</div>
 </section>
 
 <!-- ══════════════════════════════════════════════════════════════════
@@ -160,6 +160,7 @@
 <script src="assets/core.js"></script>
 <script src="assets/game-ladder.js"></script>
 <script src="assets/game-marble.js"></script>
+<script src="assets/game-draw.js"></script>
 <script>Core.boot();</script>
 </body>
 </html>
